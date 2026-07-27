@@ -201,7 +201,7 @@ export function TyreClassModule({ title, subtitle, tyreClass, categories, testID
                         disabled={busyId === item.id}
                         testID={`${testIDPrefix}-in-${item.id}`}
                       >
-                        <MaterialCommunityIcons name="arrow-down-thin" size={14} color="#FFFFFF" />
+                        <MaterialCommunityIcons name="arrow-down-bold" size={14} color="#FFFFFF" />
                         <Text style={styles.mvText}>In</Text>
                       </TouchableOpacity>
                     ) : null}
@@ -211,7 +211,7 @@ export function TyreClassModule({ title, subtitle, tyreClass, categories, testID
                       disabled={busyId === item.id}
                       testID={`${testIDPrefix}-out-${item.id}`}
                     >
-                      <MaterialCommunityIcons name="arrow-up-thin" size={14} color="#FFFFFF" />
+                      <MaterialCommunityIcons name="arrow-up-bold" size={14} color="#FFFFFF" />
                       <Text style={styles.mvText}>Out</Text>
                     </TouchableOpacity>
                   </View>

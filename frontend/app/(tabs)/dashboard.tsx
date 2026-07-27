@@ -245,7 +245,7 @@ export default function Dashboard() {
           ) : null}
           {perms.isOwner ? (
             <KpiCard
-              icon="tire"
+              icon="car-brake-hold"
               label="Old Tyre Stock"
               value={String(stats.oldStock)}
               tint="#FFEAD1"
@@ -255,7 +255,7 @@ export default function Dashboard() {
           ) : null}
           {perms.isOwner ? (
             <KpiCard
-              icon="tire"
+              icon="recycle"
               label="Remould Stock"
               value={String(stats.remouldStock)}
               tint="#E9DAFF"
