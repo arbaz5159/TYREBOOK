@@ -39,16 +39,21 @@ async function writeLocal(list: Tyre[]): Promise<void> {
 
 export async function listTyres(
   categoryId?: VehicleCategoryId,
+  tyreClass?: "new" | "old" | "remould",
 ): Promise<Tyre[]> {
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    return categoryId ? list.filter((t) => t.categoryId === categoryId) : list;
+    return list
+      .map((t) => ({ ...t, tyreClass: (t.tyreClass ?? "new") as Tyre["tyreClass"] }))
+      .filter((t) => !categoryId || t.categoryId === categoryId)
+      .filter((t) => !tyreClass || t.tyreClass === tyreClass);
   }
   const col = collection(db, COLLECTION);
-  const q = categoryId
-    ? query(col, where("categoryId", "==", categoryId), orderBy("brand"))
-    : query(col, orderBy("brand"));
+  const clauses: any[] = [];
+  if (categoryId) clauses.push(where("categoryId", "==", categoryId));
+  if (tyreClass) clauses.push(where("tyreClass", "==", tyreClass));
+  const q = clauses.length ? query(col, ...clauses, orderBy("brand")) : query(col, orderBy("brand"));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Tyre, "id">) }));
 }
@@ -137,12 +142,15 @@ export async function incrementTyreStock(params: {
   }
   const id = await createTyre({
     categoryId: params.categoryId,
+    tyreClass: "new",
     brand: params.brand,
     model: params.model,
     size: params.size,
     tubeType: "Tubeless",
     construction: "Radial",
     plyRating: "-",
+    loadIndex: "-",
+    speedRating: "-",
     purchasePrice: params.purchasePrice,
     sellingPrice: 0,
     currentStock: params.qty,

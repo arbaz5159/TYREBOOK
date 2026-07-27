@@ -18,9 +18,11 @@ import { PrimaryButton } from "@/src/components/PrimaryButton";
 import {
   CONSTRUCTION_OPTIONS,
   TUBE_OPTIONS,
+  TYRE_CLASSES,
   VEHICLE_CATEGORIES,
   type ConstructionType,
   type TubeType,
+  type TyreClass,
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
 import { createTyre, getTyre, updateTyre } from "@/src/firebase/inventory";
@@ -28,9 +30,10 @@ import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 export default function TyreForm() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string; category?: VehicleCategoryId }>();
+  const params = useLocalSearchParams<{ id?: string; category?: VehicleCategoryId; tyreClass?: TyreClass }>();
   const editingId = params.id;
 
+  const [tyreClass, setTyreClass] = useState<TyreClass>((params.tyreClass as TyreClass) ?? "new");
   const [categoryId, setCategoryId] = useState<VehicleCategoryId>(
     (params.category as VehicleCategoryId) ?? "car",
   );
@@ -40,6 +43,8 @@ export default function TyreForm() {
   const [tubeType, setTubeType] = useState<TubeType>("Tubeless");
   const [construction, setConstruction] = useState<ConstructionType>("Radial");
   const [plyRating, setPlyRating] = useState("");
+  const [loadIndex, setLoadIndex] = useState("");
+  const [speedRating, setSpeedRating] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [sellingPrice, setSellingPrice] = useState("");
   const [currentStock, setCurrentStock] = useState("");
@@ -47,11 +52,14 @@ export default function TyreForm() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const isDetailed = tyreClass === "new";
+
   useEffect(() => {
     (async () => {
       if (!editingId) return;
       const t = await getTyre(editingId);
       if (!t) return;
+      setTyreClass(t.tyreClass ?? "new");
       setCategoryId(t.categoryId);
       setBrand(t.brand);
       setModel(t.model);
@@ -59,6 +67,8 @@ export default function TyreForm() {
       setTubeType(t.tubeType);
       setConstruction(t.construction);
       setPlyRating(t.plyRating);
+      setLoadIndex(t.loadIndex ?? "");
+      setSpeedRating(t.speedRating ?? "");
       setPurchasePrice(String(t.purchasePrice ?? ""));
       setSellingPrice(String(t.sellingPrice ?? ""));
       setCurrentStock(String(t.currentStock ?? ""));
@@ -68,20 +78,27 @@ export default function TyreForm() {
 
   const onSave = async () => {
     setErr(null);
-    if (!brand.trim() || !model.trim() || !size.trim()) {
-      setErr("Brand, model and size are required.");
+    if (!brand.trim() || !size.trim()) {
+      setErr("Brand and tyre size are required.");
+      return;
+    }
+    if (isDetailed && !model.trim()) {
+      setErr("Model is required for new tyres.");
       return;
     }
     setSaving(true);
     try {
       const payload = {
         categoryId,
+        tyreClass,
         brand: brand.trim(),
-        model: model.trim(),
+        model: model.trim() || "-",
         size: size.trim(),
         tubeType,
         construction,
         plyRating: plyRating.trim() || "-",
+        loadIndex: loadIndex.trim() || "-",
+        speedRating: speedRating.trim().toUpperCase() || "-",
         purchasePrice: Number(purchasePrice) || 0,
         sellingPrice: Number(sellingPrice) || 0,
         currentStock: Number(currentStock) || 0,
@@ -116,6 +133,15 @@ export default function TyreForm() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <Text style={styles.label}>Tyre Class</Text>
+          <ChipRow
+            options={TYRE_CLASSES.map((c) => ({ value: c.value, label: c.label }))}
+            value={tyreClass}
+            onChange={setTyreClass}
+            testIDPrefix="tyre-class"
+          />
+
+          <View style={{ height: spacing.md }} />
           <Text style={styles.label}>Vehicle Category</Text>
           <ChipRow
             options={VEHICLE_CATEGORIES.map((c) => ({ value: c.id, label: c.name }))}
@@ -129,32 +155,59 @@ export default function TyreForm() {
             <AppTextField label="Tyre Model" value={model} onChangeText={setModel} placeholder="e.g. ZLX" testID="tyre-model" />
             <AppTextField label="Tyre Size" value={size} onChangeText={setSize} placeholder="e.g. 205/55 R16" testID="tyre-size" />
 
-            <Text style={styles.label}>Tube / Tubeless</Text>
-            <ChipRow
-              options={TUBE_OPTIONS.map((v) => ({ value: v, label: v }))}
-              value={tubeType}
-              onChange={setTubeType}
-              testIDPrefix="tyre-tube"
-            />
+            {isDetailed ? (
+              <>
+                <Text style={styles.label}>Tube / Tubeless</Text>
+                <ChipRow
+                  options={TUBE_OPTIONS.map((v) => ({ value: v, label: v }))}
+                  value={tubeType}
+                  onChange={setTubeType}
+                  testIDPrefix="tyre-tube"
+                />
 
-            <View style={{ height: spacing.md }} />
-            <Text style={styles.label}>Radial / Bias</Text>
-            <ChipRow
-              options={CONSTRUCTION_OPTIONS.map((v) => ({ value: v, label: v }))}
-              value={construction}
-              onChange={setConstruction}
-              testIDPrefix="tyre-construction"
-            />
+                <View style={{ height: spacing.md }} />
+                <Text style={styles.label}>Radial / Bias</Text>
+                <ChipRow
+                  options={CONSTRUCTION_OPTIONS.map((v) => ({ value: v, label: v }))}
+                  value={construction}
+                  onChange={setConstruction}
+                  testIDPrefix="tyre-construction"
+                />
 
-            <View style={{ height: spacing.md }} />
-            <AppTextField
-              label="Ply Rating"
-              value={plyRating}
-              onChangeText={setPlyRating}
-              placeholder="e.g. 8"
-              keyboardType="number-pad"
-              testID="tyre-ply"
-            />
+                <View style={{ height: spacing.md }} />
+                <View style={styles.priceRow}>
+                  <View style={{ flex: 1, marginRight: spacing.sm }}>
+                    <AppTextField
+                      label="Ply Rating"
+                      value={plyRating}
+                      onChangeText={setPlyRating}
+                      placeholder="e.g. 8"
+                      keyboardType="number-pad"
+                      testID="tyre-ply"
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                    <AppTextField
+                      label="Load Index"
+                      value={loadIndex}
+                      onChangeText={setLoadIndex}
+                      placeholder="e.g. 91"
+                      keyboardType="number-pad"
+                      testID="tyre-load-index"
+                    />
+                  </View>
+                </View>
+                <AppTextField
+                  label="Speed Rating"
+                  value={speedRating}
+                  onChangeText={setSpeedRating}
+                  placeholder="e.g. H, V, W"
+                  autoCapitalize="characters"
+                  testID="tyre-speed-rating"
+                />
+              </>
+            ) : null}
+
             <View style={styles.priceRow}>
               <View style={{ flex: 1, marginRight: spacing.sm }}>
                 <AppTextField

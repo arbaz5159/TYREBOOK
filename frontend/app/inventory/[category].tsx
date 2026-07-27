@@ -34,6 +34,12 @@ export default function CategoryTyres() {
     load();
   }, [load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return items;

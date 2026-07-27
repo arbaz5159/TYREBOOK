@@ -34,16 +34,20 @@ export const CATEGORY_MAP: Record<VehicleCategoryId, VehicleCategory> =
 
 export type TubeType = "Tube" | "Tubeless";
 export type ConstructionType = "Radial" | "Bias";
+export type TyreClass = "new" | "old" | "remould";
 
 export interface Tyre {
   id: string;
   categoryId: VehicleCategoryId;
+  tyreClass: TyreClass; // "new" (default) | "old" | "remould"
   brand: string;
   model: string;
   size: string;
   tubeType: TubeType;
   construction: ConstructionType;
   plyRating: string;
+  loadIndex: string;
+  speedRating: string;
   purchasePrice: number;
   sellingPrice: number;
   currentStock: number;
@@ -54,6 +58,11 @@ export interface Tyre {
 
 export const TUBE_OPTIONS: TubeType[] = ["Tubeless", "Tube"];
 export const CONSTRUCTION_OPTIONS: ConstructionType[] = ["Radial", "Bias"];
+export const TYRE_CLASSES: { value: TyreClass; label: string; hint: string; icon: string }[] = [
+  { value: "new", label: "New Tyres", hint: "Full inventory management", icon: "tire" },
+  { value: "old", label: "Old Tyres", hint: "Stock in / out / current", icon: "tire-flat" },
+  { value: "remould", label: "Remould Tyres", hint: "Stock in / out / current", icon: "recycle-variant" },
+];
 
 export interface Purchase {
   id: string;
