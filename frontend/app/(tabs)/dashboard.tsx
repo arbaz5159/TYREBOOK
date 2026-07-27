@@ -194,10 +194,22 @@ export default function Dashboard() {
             testID="qa-new-sale"
           />
           <QuickAction
+            icon="text-recognition"
+            label="AI Scan Invoice"
+            onPress={() => router.push("/smart-purchase")}
+            testID="qa-ai-scan"
+          />
+          <QuickAction
             icon="cart-arrow-down"
             label="New Purchase"
             onPress={() => router.push("/purchase/new")}
             testID="qa-new-purchase"
+          />
+          <QuickAction
+            icon="book-account-outline"
+            label="KhataBook"
+            onPress={() => router.push("/khata")}
+            testID="qa-khata"
           />
           <QuickAction
             icon="plus-box-outline"

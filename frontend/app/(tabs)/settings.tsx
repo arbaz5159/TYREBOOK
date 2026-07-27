@@ -28,6 +28,8 @@ export default function Settings() {
     { icon: "shield-crown-outline", label: "Owner Admin Panel", hint: "Manage master data & users", href: "/admin", ownerOnly: true },
     { icon: "store-outline", label: "Shop Details", hint: "Name, address, phone", href: "/admin/shop", ownerOnly: true },
     { icon: "receipt-text-outline", label: "GST & Invoice Settings", hint: "GSTIN, prefix, footer", href: "/admin/shop", ownerOnly: true },
+    { icon: "book-account-outline", label: "KhataBook", hint: "Customer ledger & credit", href: "/khata" },
+    { icon: "text-recognition", label: "AI Invoice Scanner", hint: "OCR supplier invoices", href: "/smart-purchase" },
     { icon: "translate", label: "Language", hint: "Choose app language", href: "/language" },
     { icon: "account-multiple-outline", label: "Customers", href: "/customers" },
     { icon: "cart-arrow-down", label: "Purchase History", href: "/purchase" },

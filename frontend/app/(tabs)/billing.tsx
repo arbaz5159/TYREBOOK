@@ -8,6 +8,8 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { EmptyState } from "@/src/components/EmptyState";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 import { listSales } from "@/src/firebase/sales";
+import { getShopSettings } from "@/src/firebase/master";
+import { generateAndShareInvoice } from "@/src/utils/invoicePdf";
 import type { Sale } from "@/src/constants/inventory";
 
 type Filter = "all" | "today" | "credit";
@@ -100,7 +102,26 @@ export default function Billing() {
                 </Text>
                 <Text style={styles.rowMeta}>{fmtDate(item.date)} · {item.paymentMode}</Text>
               </View>
-              <Text style={styles.amt}>{inr(item.totalValue)}</Text>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={styles.amt}>{inr(item.totalValue)}</Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const shop = await getShopSettings();
+                    const invNo = `${shop.invoicePrefix || "TB"}-${item.id.slice(-4).toUpperCase()}`;
+                    await generateAndShareInvoice({
+                      invoiceType: "Tax Invoice",
+                      invoiceNumber: invNo,
+                      sale: item,
+                      shop,
+                    });
+                  }}
+                  style={styles.shareBtn}
+                  testID={`share-sale-${item.id}`}
+                >
+                  <MaterialCommunityIcons name="share-variant" size={14} color={colors.brandPrimary} />
+                  <Text style={styles.shareText}>Share PDF</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         />
@@ -150,4 +171,15 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   rowMeta: { fontSize: fontSize.xs, color: colors.muted, marginTop: 2 },
   amt: { fontSize: fontSize.base, fontWeight: "800", color: colors.brandPrimary, marginLeft: spacing.sm },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTertiary,
+  },
+  shareText: { fontSize: 11, color: colors.brandPrimary, fontWeight: "700" },
 });

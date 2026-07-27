@@ -82,8 +82,8 @@ export interface Purchase {
   createdAt?: number;
 }
 
-export type PaymentMode = "Cash" | "UPI" | "Card" | "Credit";
-export const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Card", "Credit"];
+export type PaymentMode = "Cash" | "UPI" | "Card" | "Bank Transfer" | "Credit";
+export const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Card", "Bank Transfer", "Credit"];
 
 export interface Sale {
   id: string;

@@ -22,9 +22,21 @@ import {
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
 import { createSale } from "@/src/firebase/sales";
+import { getShopSettings } from "@/src/firebase/master";
+import { addKhataEntry } from "@/src/firebase/khata";
+import { generateAndShareInvoice, type InvoiceType } from "@/src/utils/invoicePdf";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
+const INVOICE_TYPES: InvoiceType[] = [
+  "Tax Invoice",
+  "GST Invoice",
+  "Non-GST Invoice",
+  "Estimate",
+  "Quotation",
+  "Delivery Challan",
+  "Purchase Order",
+];
 
 export default function NewSale() {
   const router = useRouter();
@@ -39,6 +51,7 @@ export default function NewSale() {
   const [sellingPrice, setPrice] = useState("");
   const [gstPercent, setGst] = useState<number>(18);
   const [paymentMode, setPayment] = useState<PaymentMode>("Cash");
+  const [invoiceType, setInvoiceType] = useState<InvoiceType>("Tax Invoice");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
@@ -60,11 +73,12 @@ export default function NewSale() {
     }
     setSaving(true);
     try {
-      const res = await createSale({
+      const saleDate = Date.now();
+      const salePayload = {
         customerName: customerName.trim(),
         mobileNumber: mobileNumber.trim(),
         vehicleNumber: vehicleNumber.trim().toUpperCase(),
-        date: Date.now(),
+        date: saleDate,
         categoryId,
         brand: brand.trim(),
         model: model.trim(),
@@ -73,7 +87,34 @@ export default function NewSale() {
         sellingPrice: Number(sellingPrice) || 0,
         gstPercent,
         paymentMode,
-      });
+      };
+      const res = await createSale(salePayload);
+
+      const grandTotal = total;
+      // Post-write side effects: KhataBook entry + invoice # + PDF share.
+      const shop = await getShopSettings();
+      const invoiceNumber = `${shop.invoicePrefix || "TB"}-${shop.nextInvoiceNumber || "0001"}`;
+
+      if (paymentMode === "Credit" && mobileNumber.trim()) {
+        await addKhataEntry({
+          customerId: mobileNumber.trim(),
+          customerName: customerName.trim(),
+          direction: "credit",
+          amount: grandTotal,
+          note: `Sale ${brand.trim()} ${model.trim()} ${size.trim()}`,
+          reference: invoiceNumber,
+          date: saleDate,
+        });
+      }
+
+      // Fire and forget the PDF share so the flow doesn't block on user.
+      generateAndShareInvoice({
+        invoiceType,
+        invoiceNumber,
+        sale: { ...salePayload, id: res.id, totalValue: grandTotal, createdAt: saleDate },
+        shop,
+      }).catch(() => {});
+
       if (res.warning) {
         setWarn(res.warning);
         setTimeout(() => router.replace("/(tabs)/billing"), 1500);
@@ -136,6 +177,14 @@ export default function NewSale() {
               value={gstPercent}
               onChange={setGst}
               testIDPrefix="sale-gst"
+            />
+
+            <Text style={styles.label}>Invoice Type</Text>
+            <ChipRow
+              options={INVOICE_TYPES.map((t) => ({ value: t, label: t }))}
+              value={invoiceType}
+              onChange={setInvoiceType}
+              testIDPrefix="sale-invtype"
             />
 
             <Text style={styles.label}>Payment Mode</Text>
