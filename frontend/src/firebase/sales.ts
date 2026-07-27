@@ -1,0 +1,218 @@
+// Firestore CRUD for Sales — collection: sales
+// On create: automatically decrements matching tyre stock and upserts a
+// Customer record (keyed by mobile number) so we keep purchase history.
+
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
+
+import { storage } from "@/src/utils/storage";
+
+import { getDb } from "./config";
+import { listTyres, updateTyre } from "./inventory";
+import type { Customer, Sale } from "@/src/constants/inventory";
+
+const SALES = "sales";
+const CUSTOMERS = "customers";
+const SALES_KEY = "tyrebook.sales";
+const CUSTOMERS_KEY = "tyrebook.customers";
+
+async function readLocalSales(): Promise<Sale[]> {
+  const raw = await storage.getItem<string | null>(SALES_KEY, null);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as Sale[];
+  } catch {
+    return [];
+  }
+}
+async function writeLocalSales(list: Sale[]): Promise<void> {
+  await storage.setItem(SALES_KEY, JSON.stringify(list));
+}
+
+async function readLocalCustomers(): Promise<Customer[]> {
+  const raw = await storage.getItem<string | null>(CUSTOMERS_KEY, null);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as Customer[];
+  } catch {
+    return [];
+  }
+}
+async function writeLocalCustomers(list: Customer[]): Promise<void> {
+  await storage.setItem(CUSTOMERS_KEY, JSON.stringify(list));
+}
+
+export async function listSales(): Promise<Sale[]> {
+  const db = getDb();
+  if (!db) {
+    const list = await readLocalSales();
+    return list.sort((a, b) => b.date - a.date);
+  }
+  const snap = await getDocs(query(collection(db, SALES), orderBy("date", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }));
+}
+
+export async function listSalesForCustomer(mobileNumber: string): Promise<Sale[]> {
+  const db = getDb();
+  if (!db) {
+    const list = await readLocalSales();
+    return list
+      .filter((s) => s.mobileNumber === mobileNumber)
+      .sort((a, b) => b.date - a.date);
+  }
+  const snap = await getDocs(
+    query(collection(db, SALES), where("mobileNumber", "==", mobileNumber)),
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }))
+    .sort((a, b) => b.date - a.date);
+}
+
+export async function listCustomers(): Promise<Customer[]> {
+  const db = getDb();
+  if (!db) {
+    const list = await readLocalCustomers();
+    return list.sort((a, b) => b.lastPurchaseAt - a.lastPurchaseAt);
+  }
+  const snap = await getDocs(
+    query(collection(db, CUSTOMERS), orderBy("lastPurchaseAt", "desc")),
+  );
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<Customer, "id">),
+  }));
+}
+
+async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
+  const db = getDb();
+  const id = sale.mobileNumber.trim();
+  if (!id) return;
+
+  if (!db) {
+    const list = await readLocalCustomers();
+    const existing = list.find((c) => c.id === id);
+    if (existing) {
+      existing.name = sale.customerName || existing.name;
+      if (sale.vehicleNumber && !existing.vehicleNumbers.includes(sale.vehicleNumber)) {
+        existing.vehicleNumbers.push(sale.vehicleNumber);
+      }
+      existing.totalSpent = +(existing.totalSpent + sale.totalValue).toFixed(2);
+      existing.saleCount += 1;
+      existing.lastPurchaseAt = sale.date;
+    } else {
+      list.push({
+        id,
+        name: sale.customerName,
+        mobileNumber: id,
+        vehicleNumbers: sale.vehicleNumber ? [sale.vehicleNumber] : [],
+        totalSpent: sale.totalValue,
+        saleCount: 1,
+        lastPurchaseAt: sale.date,
+        createdAt: Date.now(),
+      });
+    }
+    await writeLocalCustomers(list);
+    return;
+  }
+
+  const ref = doc(db, CUSTOMERS, id);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const cur = snap.data() as Customer;
+    const vehicles = new Set(cur.vehicleNumbers ?? []);
+    if (sale.vehicleNumber) vehicles.add(sale.vehicleNumber);
+    await setDoc(
+      ref,
+      {
+        name: sale.customerName || cur.name,
+        mobileNumber: id,
+        vehicleNumbers: Array.from(vehicles),
+        totalSpent: +((cur.totalSpent ?? 0) + sale.totalValue).toFixed(2),
+        saleCount: (cur.saleCount ?? 0) + 1,
+        lastPurchaseAt: sale.date,
+      },
+      { merge: true },
+    );
+  } else {
+    await setDoc(ref, {
+      name: sale.customerName,
+      mobileNumber: id,
+      vehicleNumbers: sale.vehicleNumber ? [sale.vehicleNumber] : [],
+      totalSpent: sale.totalValue,
+      saleCount: 1,
+      lastPurchaseAt: sale.date,
+      createdAt: serverTimestamp(),
+    });
+  }
+}
+
+export async function createSale(
+  data: Omit<Sale, "id" | "totalValue" | "linkedTyreId">,
+): Promise<{ id: string; warning?: string }> {
+  const subtotal = data.quantity * data.sellingPrice;
+  const totalValue = +(subtotal + (subtotal * data.gstPercent) / 100).toFixed(2);
+
+  // Locate the matching tyre and decrement.
+  const tyres = await listTyres(data.categoryId);
+  const tyre = tyres.find(
+    (t) =>
+      t.brand.toLowerCase() === data.brand.toLowerCase() &&
+      t.model.toLowerCase() === data.model.toLowerCase() &&
+      t.size.toLowerCase() === data.size.toLowerCase(),
+  );
+
+  let linkedTyreId: string | undefined;
+  let warning: string | undefined;
+  if (tyre) {
+    const newStock = (tyre.currentStock ?? 0) - data.quantity;
+    if (newStock < 0) warning = `Selling ${data.quantity} but only ${tyre.currentStock} in stock.`;
+    await updateTyre(tyre.id, { currentStock: Math.max(0, newStock) });
+    linkedTyreId = tyre.id;
+  } else {
+    warning = "Matching tyre not found in inventory. Stock was NOT reduced.";
+  }
+
+  const payload: Omit<Sale, "id"> = {
+    ...data,
+    totalValue,
+    linkedTyreId,
+    createdAt: Date.now(),
+  };
+
+  await upsertCustomer(payload);
+
+  const db = getDb();
+  if (!db) {
+    const list = await readLocalSales();
+    const id = `local-${Date.now()}`;
+    list.push({ ...payload, id });
+    await writeLocalSales(list);
+    return { id, warning };
+  }
+  const ref = await addDoc(collection(db, SALES), {
+    ...payload,
+    createdAt: serverTimestamp(),
+  });
+  return { id: ref.id, warning };
+}
+
+export async function deleteSale(id: string): Promise<void> {
+  const db = getDb();
+  if (!db) {
+    const list = await readLocalSales();
+    await writeLocalSales(list.filter((s) => s.id !== id));
+    return;
+  }
+  await deleteDoc(doc(db, SALES, id));
+}

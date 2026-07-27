@@ -1,0 +1,41 @@
+{
+  "summary": "Comprehensive UI regression on TyreBook Expo web preview (mobile 390x844) covering auth, dashboard, inventory (7 categories), add-tyre, purchase, sale, billing, reports, admin (brands/users/shop/backup) and language. Local-auth fallback via AsyncStorage works. Sale total (2*4200*1.18 = ₹9,912) and Purchase total (5*3500*1.18 = ₹20,650) computed correctly. Purchase auto-incremented stock and Sale navigation to Billing tab both verified. Reports GST math correct. Several testID mismatches from the spec were found on Admin index rows, Settings, Language and Users role toggle; these will make automated spec-driven QA fail even though the underlying screens work. Dashboard KPI stats do not refresh when returning from create screens (only on mount + pull-to-refresh).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/admin/index.tsx", "issue": "Auto-generated testIDs don't match spec. Expected admin-tyreModels/admin-tyreSizes/admin-vehicleCategories/admin-shop but code produces admin-tyre-models/admin-tyre-sizes/admin-vehicle-categories/admin-shop-gst-invoice-settings (kebab-case + full label). Reference: /app/frontend/app/admin/index.tsx:62", "testID": "admin-tyreModels/admin-tyreSizes/admin-vehicleCategories/admin-shop", "priority": "HIGH"},
+      {"component": "app/(tabs)/settings.tsx", "issue": "Owner Admin Panel row testID is `settings-row-owner-admin-panel`; spec expects `settings-admin-row`. Reference: /app/frontend/app/(tabs)/settings.tsx:70", "testID": "settings-admin-row", "priority": "HIGH"},
+      {"component": "app/language.tsx", "issue": "Language items use testID `language-{code}`. Spec/QA expects prefix `lang-` (or similar) for language selection. Reference: /app/frontend/app/language.tsx:53", "testID": "lang-{code}", "priority": "MEDIUM"},
+      {"component": "app/admin/users.tsx", "issue": "user-role uses testIDPrefix (renders user-role-owner / user-role-staff on child chips) so single selector `user-role` isn't present. Consider adding a wrapper with testID=`user-role`. Reference: /app/frontend/app/admin/users.tsx:88", "testID": "user-role", "priority": "LOW"},
+      {"component": "app/(tabs)/dashboard.tsx", "issue": "Dashboard KPI stats do not refresh when navigating back from Add-Tyre/New Sale/New Purchase. Only mount + pull-to-refresh triggers reload. Use useFocusEffect from expo-router. Reference: /app/frontend/app/(tabs)/dashboard.tsx:100", "testID": "hero-todays-sales", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Add Tyre form", "issues": ["Vehicle Category chip row is horizontally scrollable (good) but no visible indicator; on 390px width the last category (OTR/Earthmover) is clipped."]}
+    ],
+    "react_native_issues": [
+      {"component": "TouchableOpacity/pointerEvents", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Likely coming from an internal component (probably @react-navigation or expo-router). Not a code owner action but flag for library upgrade."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_1.json"],
+  "action_items": [
+    "Fix admin panel row testIDs to match spec: admin-brands, admin-tyreModels, admin-tyreSizes, admin-vehicleCategories, admin-suppliers, admin-manage-users, admin-shop, admin-backup-restore (either hardcode testID per row or use a testID key on the Row config).",
+    "Change Owner Admin Panel row testID in Settings screen from `settings-row-owner-admin-panel` to `settings-admin-row`.",
+    "Rename language row testID from `language-{code}` to `lang-{code}` (or the id used by the spec) so the check-mark move / persistence check is scriptable.",
+    "Wrap user-role selector with testID=`user-role` on the container so scripts can find/query the control (children can keep user-role-owner / user-role-staff).",
+    "Add useFocusEffect in Dashboard to reload KPI stats when the tab regains focus after Add Tyre / New Sale / New Purchase.",
+    "Consider adding a testID (e.g. `admin-customers`) row is auto-generated as `admin-customers`; keep in QA reference table."
+  ],
+  "critical_code_review_comments": [
+    "app/admin/index.tsx builds testIDs from label — brittle; either hardcode per-row or add a `testID` field on the Row.",
+    "Dashboard loads once on mount and never refetches on focus — leads to stale KPIs after create flows.",
+    "Firebase config env vars are empty; auth/CRUD falls back to AsyncStorage via src/utils/storage. This is documented but no visible banner in Login (banner appears in Settings only)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only test)", "frontend": "~85% (all functional flows pass; ~5 spec testID mismatches + 1 stale-state issue)"},
+  "seed_data_creation": "Local AsyncStorage seeded during test with: 1 tyre (MRF ZLX 205/55 R16, stock 10 → 15 after purchase → 13 after sale), 1 purchase (Supp1 INV001 ₹20,650), 1 sale (Ramesh ₹9,912), 1 brand (TestBrandZ).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login with owner@test.com / password (local-auth fallback). Main flows work end-to-end. When re-testing after fixes, verify Admin row testIDs, Settings admin row testID, Language testID prefix, and Dashboard focus-refresh. Purchase form navigates to /purchase (history list) — good. Sale form navigates to /(tabs)/billing — good. Purchase totals include GST 18% by default in save; verify if spec wants qty*price without GST.",
+  "rca_of_issue": "testID mismatches: admin/index.tsx generates testIDs from the label string via `.toLowerCase().replace(/[^a-z0-9]+/g, '-')` — this converts 'Tyre Models' → 'tyre-models' and 'Shop / GST / Invoice Settings' → 'shop-gst-invoice-settings' which don't match the spec's camelCase master-collection keys used in URL paths. Add explicit testID per row (e.g. r.testID = 'admin-tyreModels'). Similarly settings.tsx auto-generates settings-row-* which doesn't match settings-admin-row."
+}
