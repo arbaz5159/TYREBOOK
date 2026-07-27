@@ -19,45 +19,13 @@ import { AdminBottomNav } from "@/src/components/AdminBottomNav";
 import { AdminHeader } from "@/src/components/AdminHeader";
 import { AppTextField } from "@/src/components/AppTextField";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
-import { CUSTOMER_TYPES, DEFAULT_DISCOUNT_BY_TYPE, type CustomerType } from "@/src/constants/inventory";
+import { CUSTOMER_TYPES, type CustomerType } from "@/src/constants/inventory";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
+import { getPricingConfig, type PricingConfig } from "@/src/utils/settings";
 import { storage } from "@/src/utils/storage";
 
-interface PricingConfig {
-  defaultGstPercent: number;
-  minMarginPercent: number;
-  discountByType: Record<CustomerType, number>;
-}
-
 const KEY = "tyrebook.pricingConfig";
-
-const DEFAULT_CONFIG: PricingConfig = {
-  defaultGstPercent: 18,
-  minMarginPercent: 5,
-  discountByType: { ...DEFAULT_DISCOUNT_BY_TYPE },
-};
-
-async function loadConfig(): Promise<PricingConfig> {
-  const raw = await storage.getItem<string | null>(KEY, null);
-  if (!raw) return DEFAULT_CONFIG;
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      defaultGstPercent: Number(parsed.defaultGstPercent) || 18,
-      minMarginPercent: Number(parsed.minMarginPercent) || 5,
-      discountByType: {
-        Retail: Number(parsed?.discountByType?.Retail) || 0,
-        Wholesale: Number(parsed?.discountByType?.Wholesale) || 0,
-        Dealer: Number(parsed?.discountByType?.Dealer) || 0,
-        Fleet: Number(parsed?.discountByType?.Fleet) || 0,
-        Government: Number(parsed?.discountByType?.Government) || 0,
-      },
-    };
-  } catch {
-    return DEFAULT_CONFIG;
-  }
-}
 
 async function saveConfig(cfg: PricingConfig): Promise<void> {
   await storage.setItem(KEY, JSON.stringify(cfg));
@@ -78,7 +46,7 @@ export default function PricingManagement() {
   const [saving, setSaving] = useState(false);
 
   const hydrate = useCallback(async () => {
-    const cfg = await loadConfig();
+    const cfg = await getPricingConfig();
     setGst(String(cfg.defaultGstPercent));
     setMargin(String(cfg.minMarginPercent));
     setDiscounts({

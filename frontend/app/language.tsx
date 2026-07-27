@@ -5,10 +5,11 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { INDIAN_LANGUAGES } from "@/src/constants/languages";
+import { setLanguage, LANGUAGE_KEY } from "@/src/utils/settings";
 import { storage } from "@/src/utils/storage";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const KEY = "tyrebook.language";
+const KEY = LANGUAGE_KEY;
 
 export default function LanguageSwitcher() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function LanguageSwitcher() {
 
   const select = async (code: string) => {
     setCurrent(code);
-    await storage.setItem(KEY, code);
+    await setLanguage(code as any);
   };
 
   return (

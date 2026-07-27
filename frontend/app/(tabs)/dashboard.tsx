@@ -16,6 +16,7 @@ import { usePermissions } from "@/src/hooks/usePermissions";
 import { listPurchases } from "@/src/firebase/purchase";
 import { listSales, listCustomers } from "@/src/firebase/sales";
 import { listTyres } from "@/src/firebase/inventory";
+import { getAppSettings } from "@/src/utils/settings";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 interface Stats {
@@ -50,7 +51,7 @@ const ZERO: Stats = {
   customerCount: 0,
 };
 
-const LOW_STOCK_THRESHOLD = 3;
+const LOW_STOCK_THRESHOLD_FALLBACK = 3;
 
 function isToday(ts?: number) {
   if (!ts) return false;
@@ -75,12 +76,14 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [purchases, sales, tyres, customers] = await Promise.all([
+    const [purchases, sales, tyres, customers, appSettings] = await Promise.all([
       listPurchases(),
       listSales(),
       listTyres(),
       listCustomers(),
+      getAppSettings(),
     ]);
+    const lowStockDefault = appSettings.lowStockThreshold || LOW_STOCK_THRESHOLD_FALLBACK;
     const todayPurchase = purchases
       .filter((p) => isToday(p.date))
       .reduce((s, p) => s + (p.totalValue ?? 0), 0);
@@ -114,7 +117,7 @@ export default function Dashboard() {
       .filter((t) => (t.tyreClass ?? "new") === "remould")
       .reduce((s, t) => s + (t.currentStock ?? 0), 0);
     const lowStock = tyres.filter(
-      (t) => (t.currentStock ?? 0) <= (t.minStockAlert ?? LOW_STOCK_THRESHOLD),
+      (t) => (t.currentStock ?? 0) <= (t.minStockAlert ?? lowStockDefault),
     ).length;
 
     setStats({

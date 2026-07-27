@@ -172,7 +172,7 @@ export default function CustomerLedger() {
                     ]}
                   >
                     <MaterialCommunityIcons
-                      name={owes ? "arrow-up-thin" : "arrow-down-thin"}
+                      name={owes ? "arrow-up-bold" : "arrow-down-bold"}
                       size={20}
                       color={owes ? colors.error : colors.success}
                     />

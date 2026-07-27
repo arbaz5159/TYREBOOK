@@ -81,6 +81,14 @@ const GROUPS: Group[] = [
         href: "/admin/pricing",
         tint: "#E9DAFF",
       },
+      {
+        key: "vehicles",
+        icon: "car-multiple",
+        label: "Vehicle Master DB",
+        hint: "Compatible sizes per model",
+        href: "/admin/vehicles",
+        tint: "#DCE7FF",
+      },
     ],
   },
   {

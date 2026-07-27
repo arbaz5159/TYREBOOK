@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -17,7 +17,6 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import {
   CUSTOMER_TYPES,
-  DEFAULT_DISCOUNT_BY_TYPE,
   PAYMENT_MODES,
   TYRE_CLASSES,
   VEHICLE_CATEGORIES,
@@ -30,6 +29,7 @@ import { createSale } from "@/src/firebase/sales";
 import { getShopSettings } from "@/src/firebase/master";
 import { addKhataEntry } from "@/src/firebase/khata";
 import { generateAndShareInvoice, type InvoiceType } from "@/src/utils/invoicePdf";
+import { getPricingConfig, type PricingConfig } from "@/src/utils/settings";
 import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -66,6 +66,17 @@ export default function NewSale() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
+  const [pricingCfg, setPricingCfg] = useState<PricingConfig | null>(null);
+
+  // Load owner-configured pricing defaults once. Applied when user picks a
+  // customer type so the default discount % is pre-filled from admin/pricing.
+  useEffect(() => {
+    (async () => {
+      const cfg = await getPricingConfig();
+      setPricingCfg(cfg);
+      setGst(cfg.defaultGstPercent);
+    })();
+  }, []);
 
   const subtotal = (Number(quantity) || 0) * (Number(sellingPrice) || 0);
   const gstAmount = (subtotal * gstPercent) / 100;
@@ -189,7 +200,11 @@ export default function NewSale() {
               }
               setErr(null);
               setCustomerType(v);
-              setDiscountPercent(String(DEFAULT_DISCOUNT_BY_TYPE[v] ?? 0));
+              const defaults = pricingCfg?.discountByType ?? null;
+              const pct =
+                defaults?.[v] ??
+                ({ Retail: 0, Wholesale: 15, Dealer: 25, Fleet: 20, Government: 10 } as Record<CustomerType, number>)[v];
+              setDiscountPercent(String(pct ?? 0));
             }}
             testIDPrefix="sale-custtype"
           />

@@ -197,18 +197,79 @@ frontend:
         agent: "main"
         comment: "Every admin screen calls `if (user.role !== 'owner') return <Redirect href='/(tabs)/settings' />`. Verified manually: staff@test.com navigating to /admin lands on /settings without seeing any admin content."
 
+  - task: "Wire admin/pricing config into Sales/New"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/sales/new.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "New helper /app/frontend/src/utils/settings.ts exposes getPricingConfig(). Sales/new loads it on mount and pre-fills the default GST% + the discount% for the selected CustomerType from the saved `tyrebook.pricingConfig`. Falls back to hard-coded defaults when nothing is saved."
+
+  - task: "Wire admin/app-settings into Dashboard"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/dashboard.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Dashboard now reads `tyrebook.appSettings.lowStockThreshold` via getAppSettings() and uses it as the fallback threshold when a tyre has no per-item minStockAlert."
+
+  - task: "Unify language key across /language and admin/app-settings"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/language.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "/language now uses setLanguage() helper which writes BOTH the legacy `tyrebook.language` key AND updates `tyrebook.appSettings.language`. admin/app-settings saveAppSettings() also mirrors to `tyrebook.language`. Selection stays in sync in either direction."
+
+  - task: "Khata arrow icons fixed"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/khata/[id].tsx"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Replaced arrow-up-thin / arrow-down-thin with arrow-up-bold / arrow-down-bold (matching iteration_2 fix pattern for MDI web font)."
+
+  - task: "Vehicle Master DB tile added"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/admin/index.tsx"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added `admin-tile-vehicles` in the Data group of the admin hub linking to the pre-existing /admin/vehicles page (previously orphaned)."
+
 metadata:
   created_by: "main_agent"
-  version: "1.1"
-  test_sequence: 2
+  version: "1.2"
+  test_sequence: 3
   run_ui: true
 
 test_plan:
   current_focus:
-    - "Owner Admin Panel — professional hub with all 11 sections"
-    - "Admin bottom navigation (persistent)"
-    - "Staff RBAC — cannot access /admin routes"
-    - "New pages: dashboard, pricing, ai-scanner, app-settings"
+    - "Settings wired end-to-end (pricing/app-settings apply in Sales & Dashboard)"
+    - "Language key unified between /language and admin/app-settings"
+    - "Broken khata arrow icons fixed"
+    - "Admin hub has 12 tiles incl. Vehicle Master DB"
+    - "Regression: all previously-passing modules still working"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

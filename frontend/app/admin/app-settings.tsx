@@ -22,19 +22,12 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
-import { storage } from "@/src/utils/storage";
-
-interface AppSettings {
-  language: "en" | "hi" | "kn" | "mr";
-  currencySymbol: string;
-  lowStockThreshold: number;
-  enableWhatsappShare: boolean;
-  enablePdfInvoice: boolean;
-  enableLowStockAlerts: boolean;
-  enableStaffProfitView: boolean;
-}
-
-const KEY = "tyrebook.appSettings";
+import {
+  DEFAULT_APP_SETTINGS,
+  getAppSettings,
+  saveAppSettings,
+  type AppSettings,
+} from "@/src/utils/settings";
 
 const LANGUAGES = [
   { value: "en", label: "English" },
@@ -43,15 +36,7 @@ const LANGUAGES = [
   { value: "mr", label: "मराठी" },
 ] as const;
 
-const DEFAULTS: AppSettings = {
-  language: "en",
-  currencySymbol: "₹",
-  lowStockThreshold: 3,
-  enableWhatsappShare: true,
-  enablePdfInvoice: true,
-  enableLowStockAlerts: true,
-  enableStaffProfitView: false,
-};
+const DEFAULTS: AppSettings = DEFAULT_APP_SETTINGS;
 
 export default function AppSettingsScreen() {
   const { user } = useAuth();
@@ -60,14 +45,8 @@ export default function AppSettingsScreen() {
   const [status, setStatus] = useState<string | null>(null);
 
   const hydrate = useCallback(async () => {
-    const raw = await storage.getItem<string | null>(KEY, null);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      setS({ ...DEFAULTS, ...parsed });
-    } catch {
-      // ignore
-    }
+    const cfg = await getAppSettings();
+    setS(cfg);
   }, []);
 
   useEffect(() => {
@@ -80,7 +59,7 @@ export default function AppSettingsScreen() {
     setSaving(true);
     setStatus(null);
     try {
-      await storage.setItem(KEY, JSON.stringify(s));
+      await saveAppSettings(s);
       setStatus("App settings saved.");
     } catch (e: any) {
       setStatus("Failed: " + (e?.message ?? ""));
