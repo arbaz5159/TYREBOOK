@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -26,10 +26,12 @@ import {
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
 import { createTyre, getTyre, updateTyre } from "@/src/firebase/inventory";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 export default function TyreForm() {
   const router = useRouter();
+  const perms = usePermissions();
   const params = useLocalSearchParams<{ id?: string; category?: VehicleCategoryId; tyreClass?: TyreClass }>();
   const editingId = params.id;
 
@@ -39,14 +41,19 @@ export default function TyreForm() {
   );
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
+  const [pattern, setPattern] = useState("");
   const [size, setSize] = useState("");
   const [tubeType, setTubeType] = useState<TubeType>("Tubeless");
   const [construction, setConstruction] = useState<ConstructionType>("Radial");
   const [plyRating, setPlyRating] = useState("");
   const [loadIndex, setLoadIndex] = useState("");
   const [speedRating, setSpeedRating] = useState("");
+  const [vehicleCompatibility, setVehicleCompatibility] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [sellingPrice, setSellingPrice] = useState("");
+  const [mrp, setMrp] = useState("");
+  const [companyPriceList, setCompanyPriceList] = useState("");
+  const [minStockAlert, setMinStockAlert] = useState("");
   const [currentStock, setCurrentStock] = useState("");
   const [rackNumber, setRackNumber] = useState("");
   const [saving, setSaving] = useState(false);
@@ -55,6 +62,7 @@ export default function TyreForm() {
   const isDetailed = tyreClass === "new";
 
   useEffect(() => {
+    if (!perms.canEditStock) return;
     (async () => {
       if (!editingId) return;
       const t = await getTyre(editingId);
@@ -63,18 +71,25 @@ export default function TyreForm() {
       setCategoryId(t.categoryId);
       setBrand(t.brand);
       setModel(t.model);
+      setPattern(t.pattern ?? "");
       setSize(t.size);
       setTubeType(t.tubeType);
       setConstruction(t.construction);
       setPlyRating(t.plyRating);
       setLoadIndex(t.loadIndex ?? "");
       setSpeedRating(t.speedRating ?? "");
+      setVehicleCompatibility(t.vehicleCompatibility ?? "");
       setPurchasePrice(String(t.purchasePrice ?? ""));
       setSellingPrice(String(t.sellingPrice ?? ""));
+      setMrp(String(t.mrp ?? ""));
+      setCompanyPriceList(String(t.companyPriceList ?? ""));
+      setMinStockAlert(String(t.minStockAlert ?? ""));
       setCurrentStock(String(t.currentStock ?? ""));
       setRackNumber(t.rackNumber ?? "");
     })();
-  }, [editingId]);
+  }, [editingId, perms.canEditStock]);
+
+  if (!perms.canEditStock) return <Redirect href="/(tabs)/inventory" />;
 
   const onSave = async () => {
     setErr(null);
@@ -93,14 +108,19 @@ export default function TyreForm() {
         tyreClass,
         brand: brand.trim(),
         model: model.trim() || "-",
+        pattern: pattern.trim() || "-",
         size: size.trim(),
         tubeType,
         construction,
         plyRating: plyRating.trim() || "-",
         loadIndex: loadIndex.trim() || "-",
         speedRating: speedRating.trim().toUpperCase() || "-",
+        vehicleCompatibility: vehicleCompatibility.trim(),
         purchasePrice: Number(purchasePrice) || 0,
         sellingPrice: Number(sellingPrice) || 0,
+        mrp: Number(mrp) || 0,
+        companyPriceList: Number(companyPriceList) || 0,
+        minStockAlert: Number(minStockAlert) || 3,
         currentStock: Number(currentStock) || 0,
         rackNumber: rackNumber.trim() || "-",
       };
@@ -153,7 +173,15 @@ export default function TyreForm() {
           <View style={{ marginTop: spacing.lg }}>
             <AppTextField label="Brand" value={brand} onChangeText={setBrand} placeholder="MRF, Apollo, CEAT…" testID="tyre-brand" />
             <AppTextField label="Tyre Model" value={model} onChangeText={setModel} placeholder="e.g. ZLX" testID="tyre-model" />
+            <AppTextField label="Pattern" value={pattern} onChangeText={setPattern} placeholder="e.g. Nylo Grip Zapper" testID="tyre-pattern" />
             <AppTextField label="Tyre Size" value={size} onChangeText={setSize} placeholder="e.g. 205/55 R16" testID="tyre-size" />
+            <AppTextField
+              label="Vehicle Compatibility"
+              value={vehicleCompatibility}
+              onChangeText={setVehicleCompatibility}
+              placeholder="Honda Activa 6G, Suzuki Access 125"
+              testID="tyre-compat"
+            />
 
             {isDetailed ? (
               <>
@@ -221,17 +249,49 @@ export default function TyreForm() {
               </View>
               <View style={{ flex: 1, marginLeft: spacing.sm }}>
                 <AppTextField
-                  label="Selling Price (₹)"
+                  label="MRP (₹)"
+                  value={mrp}
+                  onChangeText={setMrp}
+                  keyboardType="numeric"
+                  placeholder="Max Retail Price"
+                  testID="tyre-mrp"
+                />
+              </View>
+            </View>
+            <View style={styles.priceRow}>
+              <View style={{ flex: 1, marginRight: spacing.sm }}>
+                <AppTextField
+                  label="Company Price List (₹)"
+                  value={companyPriceList}
+                  onChangeText={setCompanyPriceList}
+                  keyboardType="numeric"
+                  placeholder="Dealer list price"
+                  testID="tyre-company-price"
+                />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <AppTextField
+                  label="Retail Price (₹)"
                   value={sellingPrice}
                   onChangeText={setSellingPrice}
                   keyboardType="numeric"
-                  placeholder="0"
+                  placeholder="Counter selling"
                   testID="tyre-selling-price"
                 />
               </View>
             </View>
             <View style={styles.priceRow}>
               <View style={{ flex: 1, marginRight: spacing.sm }}>
+                <AppTextField
+                  label="Min Stock Alert"
+                  value={minStockAlert}
+                  onChangeText={setMinStockAlert}
+                  keyboardType="number-pad"
+                  placeholder="3"
+                  testID="tyre-min-alert"
+                />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
                 <AppTextField
                   label="Current Stock"
                   value={currentStock}
@@ -241,16 +301,14 @@ export default function TyreForm() {
                   testID="tyre-stock"
                 />
               </View>
-              <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                <AppTextField
-                  label="Rack Number"
-                  value={rackNumber}
-                  onChangeText={setRackNumber}
-                  placeholder="e.g. R-12"
-                  testID="tyre-rack"
-                />
-              </View>
             </View>
+            <AppTextField
+              label="Rack Number"
+              value={rackNumber}
+              onChangeText={setRackNumber}
+              placeholder="e.g. R-12"
+              testID="tyre-rack"
+            />
           </View>
 
           {err ? <Text style={styles.err}>{err}</Text> : null}

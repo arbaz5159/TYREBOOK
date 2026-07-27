@@ -8,6 +8,7 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { listPurchases } from "@/src/firebase/purchase";
 import { listSales } from "@/src/firebase/sales";
 import { listTyres } from "@/src/firebase/inventory";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 type Range = "today" | "week" | "month";
@@ -28,6 +29,7 @@ function withinRange(ts: number, r: Range) {
 }
 
 export default function Reports() {
+  const perms = usePermissions();
   const [range, setRange] = useState<Range>("today");
   const [sales, setSales] = useState<any[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
@@ -50,6 +52,16 @@ export default function Reports() {
   const pFiltered = purchases.filter((p) => withinRange(p.date, range));
 
   const totalSales = sFiltered.reduce((a, b) => a + (b.totalValue ?? 0), 0);
+  const retailSales = sFiltered
+    .filter((s) => (s.customerType ?? "Retail") === "Retail")
+    .reduce((a, b) => a + (b.totalValue ?? 0), 0);
+  const wholesaleSales = sFiltered
+    .filter((s) => s.customerType && s.customerType !== "Retail")
+    .reduce((a, b) => a + (b.totalValue ?? 0), 0);
+  const totalDiscount = sFiltered.reduce(
+    (a, b) => a + (Number(b.discountAmount ?? 0) * Number(b.quantity ?? 0)),
+    0,
+  );
   const totalPurchase = pFiltered.reduce((a, b) => a + (b.totalValue ?? 0), 0);
   const gstCollected = sFiltered.reduce((a, b) => {
     const sub = b.sellingPrice * b.quantity;
@@ -67,6 +79,29 @@ export default function Reports() {
     const cost = (tyre?.purchasePrice ?? 0) * b.quantity;
     return a + (b.sellingPrice * b.quantity - cost);
   }, 0);
+
+  const salesByClass = (cls: "old" | "remould") =>
+    sFiltered.filter((s) => s.tyreClass === cls);
+  const oldSales = salesByClass("old").reduce((a, b) => a + (b.totalValue ?? 0), 0);
+  const oldQty = salesByClass("old").reduce((a, b) => a + (b.quantity ?? 0), 0);
+  const oldProfit = salesByClass("old").reduce((a, b) => {
+    const tyre = tyres.find((t) => t.id === b.linkedTyreId);
+    const cost = (tyre?.purchasePrice ?? 0) * b.quantity;
+    return a + (b.sellingPrice * b.quantity - cost);
+  }, 0);
+  const remouldSales = salesByClass("remould").reduce((a, b) => a + (b.totalValue ?? 0), 0);
+  const remouldQty = salesByClass("remould").reduce((a, b) => a + (b.quantity ?? 0), 0);
+  const remouldProfit = salesByClass("remould").reduce((a, b) => {
+    const tyre = tyres.find((t) => t.id === b.linkedTyreId);
+    const cost = (tyre?.purchasePrice ?? 0) * b.quantity;
+    return a + (b.sellingPrice * b.quantity - cost);
+  }, 0);
+  const oldStockCount = tyres
+    .filter((t) => (t.tyreClass ?? "new") === "old")
+    .reduce((a, b) => a + (b.currentStock ?? 0), 0);
+  const remouldStockCount = tyres
+    .filter((t) => (t.tyreClass ?? "new") === "remould")
+    .reduce((a, b) => a + (b.currentStock ?? 0), 0);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -90,8 +125,19 @@ export default function Reports() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Sales Overview</Text>
           <Row icon="trending-up" label="Total Sales" value={inr(totalSales)} tint={colors.brandTertiary} />
-          <Row icon="trending-down" label="Total Purchases" value={inr(totalPurchase)} tint="#FFEAD1" />
-          <Row icon="cash-multiple" label="Estimated Profit" value={inr(profit)} tint="#D6F3E0" />
+          <Row icon="storefront-outline" label="Retail Sales" value={inr(retailSales)} tint={colors.brandTertiary} />
+          {perms.isOwner ? (
+            <Row icon="warehouse" label="Wholesale + Dealer/Fleet/Govt" value={inr(wholesaleSales)} tint="#DCE7FF" />
+          ) : null}
+          {perms.isOwner ? (
+            <Row icon="trending-down" label="Total Purchases" value={inr(totalPurchase)} tint="#FFEAD1" />
+          ) : null}
+          {perms.canViewProfit ? (
+            <Row icon="cash-multiple" label="Estimated Profit" value={inr(profit)} tint="#D6F3E0" />
+          ) : null}
+          {perms.isOwner ? (
+            <Row icon="sale" label="Total Discount Given" value={inr(totalDiscount)} tint="#FFDAD6" />
+          ) : null}
         </View>
 
         <View style={styles.section}>
@@ -100,16 +146,38 @@ export default function Reports() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tax Summary (GST)</Text>
-          <Row icon="receipt" label="Output GST (Sales)" value={inr(gstCollected)} tint={colors.brandTertiary} />
-          <Row icon="receipt-text-outline" label="Input GST (Purchase)" value={inr(gstPaid)} tint="#FFEAD1" />
-          <Row
-            icon="calculator-variant-outline"
-            label="Net GST Payable"
-            value={inr(Math.max(0, gstCollected - gstPaid))}
-            tint="#DCE7FF"
-          />
+          <Text style={styles.sectionTitle}>Old Tyres</Text>
+          <Row icon="tire" label="Sales Value" value={inr(oldSales)} tint="#FFEAD1" />
+          <Row icon="counter" label="Tyres Sold" value={String(oldQty)} tint="#FFEAD1" />
+          <Row icon="package-variant" label="Current Stock" value={String(oldStockCount)} tint={colors.brandTertiary} />
+          {perms.canViewProfit ? (
+            <Row icon="cash-multiple" label="Old Tyre Profit" value={inr(oldProfit)} tint="#D6F3E0" />
+          ) : null}
         </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Remould Tyres</Text>
+          <Row icon="recycle-variant" label="Sales Value" value={inr(remouldSales)} tint="#E9DAFF" />
+          <Row icon="counter" label="Tyres Sold" value={String(remouldQty)} tint="#E9DAFF" />
+          <Row icon="package-variant" label="Current Stock" value={String(remouldStockCount)} tint={colors.brandTertiary} />
+          {perms.canViewProfit ? (
+            <Row icon="cash-multiple" label="Remould Profit" value={inr(remouldProfit)} tint="#D6F3E0" />
+          ) : null}
+        </View>
+
+        {perms.canManageGst ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tax Summary (GST)</Text>
+            <Row icon="receipt" label="Output GST (Sales)" value={inr(gstCollected)} tint={colors.brandTertiary} />
+            <Row icon="receipt-text-outline" label="Input GST (Purchase)" value={inr(gstPaid)} tint="#FFEAD1" />
+            <Row
+              icon="calculator-variant-outline"
+              label="Net GST Payable"
+              value={inr(Math.max(0, gstCollected - gstPaid))}
+              tint="#DCE7FF"
+            />
+          </View>
+        ) : null}
 
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>

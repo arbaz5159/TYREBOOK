@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -17,12 +17,14 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { VEHICLE_CATEGORIES, type VehicleCategoryId } from "@/src/constants/inventory";
 import { createPurchase } from "@/src/firebase/purchase";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
 
 export default function NewPurchase() {
   const router = useRouter();
+  const perms = usePermissions();
   const [supplierName, setSupplier] = useState("");
   const [invoiceNumber, setInvoice] = useState("");
   const [date, setDate] = useState(new Date());
@@ -40,6 +42,8 @@ export default function NewPurchase() {
   const subtotal = (Number(quantity) || 0) * (Number(purchasePrice) || 0);
   const gstAmount = (subtotal * gstPercent) / 100;
   const total = subtotal + gstAmount;
+
+  if (!perms.canCreatePurchase) return <Redirect href="/(tabs)/dashboard" />;
 
   const onSave = async () => {
     setErr(null);

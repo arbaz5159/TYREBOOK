@@ -101,3 +101,93 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  TyreBook - complete tyre inventory, GST billing, KhataBook, and business management app for
+  tyre shops in India (Material Design 3, Firebase Auth+Firestore).
+  Latest ask: add dedicated Old Tyres (Car/Truck) & Remould Tyres (Bike/Truck/Tractor) modules
+  with Stock In / Stock Out / Current Stock / Purchase Price / Selling Price / Profit / Reports.
+  Wire Dashboard KPIs to those modules and eliminate all runtime errors.
+
+frontend:
+  - task: "Dashboard runtime error (undefined oldStock / remouldStock)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/dashboard.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: false
+        agent: "user"
+        comment: "Dashboard threw ReferenceError because setStats used undeclared oldStock/remouldStock."
+      - working: "NA"
+        agent: "main"
+        comment: "Computed oldStock/remouldStock from tyres filtered by tyreClass. Made Old/Remould KPI cards navigable to the new modules. Added Quick Actions rows for Old Tyres and Remould Tyres. Fixed missing 'tire-flat' MDI glyph app-wide."
+
+  - task: "Old Tyres module (Car / Truck)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/old-tyres/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Uses shared TyreClassModule with categories=['car','truck']. Shows per-category Current Stock, Sales Value, Profit; supports inline Stock In / Stock Out via recordMovement()."
+
+  - task: "Remould Tyres module (Bike / Truck / Tractor)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/remould/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Uses shared TyreClassModule with categories=['bike','truck','tractor']."
+
+  - task: "Reports segregation: Old & Remould breakdown"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/reports.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added 'Old Tyres' and 'Remould Tyres' sections showing Sales Value, Tyres Sold, Current Stock and (owner-only) Profit under Today / Week / Month range."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 2
+  run_ui: true
+
+test_plan:
+  current_focus:
+    - "Dashboard runtime error (undefined oldStock / remouldStock)"
+    - "Old Tyres module (Car / Truck)"
+    - "Remould Tyres module (Bike / Truck / Tractor)"
+    - "Reports segregation: Old & Remould breakdown"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Fixed the ReferenceError on Dashboard (oldStock/remouldStock now computed). Old/Remould
+      KPI cards are clickable and navigate to /old-tyres and /remould. Added Quick Actions
+      for both new modules. Added Old/Remould breakdown to Reports.
+      Please validate:
+        1. Owner login → Dashboard renders without crashes, all KPI cards visible.
+        2. Tap "Old Tyres" KPI or quick action → routes to /old-tyres with Car/Truck chip row.
+        3. Tap "Remould" KPI or quick action → routes to /remould with Bike/Truck/Tractor.
+        4. Add a tyre from Old Tyres screen using + button; confirm tyreClass=old is preserved.
+        5. Stock In / Stock Out inline buttons work and update Current Stock.
+        6. Reports tab shows Old Tyres and Remould Tyres sections.
+      Credentials: owner@test.com / password  (see /app/memory/test_credentials.md)

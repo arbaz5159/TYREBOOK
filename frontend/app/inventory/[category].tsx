@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { EmptyState } from "@/src/components/EmptyState";
 import { CATEGORY_MAP, type VehicleCategoryId, type Tyre } from "@/src/constants/inventory";
 import { deleteTyre, listTyres } from "@/src/firebase/inventory";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const LOW_STOCK_THRESHOLD = 3;
@@ -22,6 +23,7 @@ export default function CategoryTyres() {
   const { category } = useLocalSearchParams<{ category: VehicleCategoryId }>();
   const router = useRouter();
   const cat = category ? CATEGORY_MAP[category] : undefined;
+  const perms = usePermissions();
   const [items, setItems] = useState<Tyre[]>([]);
   const [q, setQ] = useState("");
 
@@ -126,22 +128,26 @@ export default function CategoryTyres() {
                   </Text>
                   <Text style={styles.stockLabel}>in stock</Text>
                   <View style={{ flexDirection: "row", marginTop: spacing.xs }}>
-                    <TouchableOpacity
-                      onPress={() =>
-                        router.push({ pathname: "/inventory/tyre-form", params: { id: item.id } })
-                      }
-                      style={styles.miniBtn}
-                      testID={`edit-tyre-${item.id}`}
-                    >
-                      <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.brandPrimary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => onDelete(item.id)}
-                      style={[styles.miniBtn, { marginLeft: 6 }]}
-                      testID={`delete-tyre-${item.id}`}
-                    >
-                      <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.error} />
-                    </TouchableOpacity>
+                    {perms.canEditPrices ? (
+                      <TouchableOpacity
+                        onPress={() =>
+                          router.push({ pathname: "/inventory/tyre-form", params: { id: item.id } })
+                        }
+                        style={styles.miniBtn}
+                        testID={`edit-tyre-${item.id}`}
+                      >
+                        <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.brandPrimary} />
+                      </TouchableOpacity>
+                    ) : null}
+                    {perms.canEditStock ? (
+                      <TouchableOpacity
+                        onPress={() => onDelete(item.id)}
+                        style={[styles.miniBtn, { marginLeft: 6 }]}
+                        testID={`delete-tyre-${item.id}`}
+                      >
+                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.error} />
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 </View>
               </View>

@@ -1,46 +1,64 @@
-# TyreBook — Product Requirements (v2, AI-Enabled)
+# TyreBook — Product Requirements (v3)
 
 ## What it is
-TyreBook is a mobile-first (Expo React Native) full business management app for Indian tyre shops. Ships with inventory, purchases, GST-style billing, KhataBook (customer ledger), owner-only admin, multilingual UI, and an AI invoice scanner.
+Full-stack Expo mobile app for Indian tyre shops. Inventory, purchases, GST billing, KhataBook, AI invoice OCR, dealer discount management and role-based access.
 
 ## Tech stack
-- Expo SDK 54, Expo Router (file-based), React Native 0.81
-- Firebase JS SDK (Auth + Firestore) — configured via `EXPO_PUBLIC_FIREBASE_*` env vars, with AsyncStorage fallback so the UI stays usable without credentials
-- FastAPI backend with MongoDB
-- **AI OCR**: `openai/gpt-4o-mini` vision, called via `emergentintegrations` using the Emergent Universal LLM key
-- expo-print + expo-sharing for PDF invoices, expo-image-picker + expo-document-picker for the scanner
+- Expo SDK 54, Expo Router
+- Firebase JS SDK (Auth + Firestore) with AsyncStorage fallback
+- FastAPI + MongoDB backend
+- OpenAI `gpt-4o-mini` vision via `emergentintegrations` + Emergent Universal LLM key
+- expo-print + expo-sharing (PDF invoices + WhatsApp/Email share)
+- expo-image-picker / expo-document-picker (AI invoice scanner input)
 
-## Modules (delivered)
-1. Splash + Firebase Auth (Login role toggle Owner/Staff, Signup)
-2. Bottom tabs: Dashboard · Inventory · Billing · Reports · Settings
-3. **Dashboard widgets**: hero (Today's Sales, Profit, Purchase), KPI grid (Total Stock, Pending Khata, Low Stock, Customers), Quick Actions (New Sale, AI Scan Invoice, New Purchase, KhataBook, Add Tyre, Customers), Owner Admin banner, FAB (Quick Bill)
-4. **Inventory (New Tyres)** — 7 vehicle categories; per-tyre CRUD with Brand, Tyre Model, Tyre Size, Tube/Tubeless, Radial/Bias, Ply Rating, **Load Index**, **Speed Rating**, Purchase Price, Selling Price, Current Stock, Rack Number; search; low-stock highlight
-5. **Purchase Module** — manual purchase form (Supplier / Invoice # / Date / Category / Brand / Model / Size / Qty / Purchase Price / GST / Remarks) with auto stock increment + purchase history
-6. **AI Smart Purchase Scanner** — camera capture / upload image / upload PDF → GPT‑4o-mini OCR → editable preview (each field flagged medium/low confidence gets a "verify" badge) → duplicate-invoice check against the backend index → Confirm auto-creates the purchase and increases stock
-7. **Sales / GST Billing** — Invoice-type picker (Tax Invoice, GST Invoice, Non-GST, Estimate, Quotation, Delivery Challan, Purchase Order) + Payment mode (Cash / UPI / Card / **Bank Transfer** / Credit); on save auto-decrements stock, upserts customer, writes KhataBook credit entry if Credit, and generates & shares a professional **PDF invoice** with UPI **QR code** for scan-to-pay
-8. **KhataBook** — customer ledger keyed by mobile number with running balance, Credit / Payment entries, To-Receive & Advances summary
-9. **Customers** — list, search, per-customer purchase history
-10. **Reports** — Today/Week/Month filter with Sales, Purchases, Profit, Pending Khata, Input/Output/Net GST
-11. **Owner Admin Panel** — Brands / Tyre Models / Tyre Sizes / Vehicle Categories / Suppliers CRUD, Manage Users, Shop / GST / Invoice settings, Backup & Restore (JSON), Customers link
-12. **Language switcher** — 22 official Indian languages
-13. **PDF invoice & sharing** — expo-print HTML → PDF, then expo-sharing dispatches to WhatsApp / Email / Print. Layout works on A4; 58mm/80mm thermal are handled by the OS print dialog
+## Modules
+1. Splash + Auth (Owner / Staff role toggle)
+2. Bottom tabs — Dashboard · Inventory · Billing · Reports · Settings
+3. **Role-based dashboards**
+   - Owner: hero (Today's Sales / Profit / Purchase pills), KPI grid (Retail / Wholesale / Old / Remould / Inventory / Pending Khata / Low Stock / Customers), Owner Admin banner
+   - Staff: hero (Today's Retail Sales / Bills Today / Pending Khata), KPI grid (Retail Sales / Current Inventory / Pending Khata / Low Stock / Customers)
+4. **Inventory** — segmented New / Old / Remould, 7 vehicle categories, per-tyre CRUD (Brand, Model, Pattern, Size, Tube/Tubeless, Radial/Bias, Ply, Load Index, Speed Rating, Vehicle Compatibility, Purchase / Retail / MRP / Company Price List, Min Stock Alert, Current Stock, Rack)
+5. **Purchase Module** — manual + AI Smart Purchase Scanner (camera / gallery / PDF-hint) → GPT-4o-mini → editable preview with low/medium confidence badges → duplicate check → auto stock in
+6. **Sales / GST Billing** — 7 invoice types, 5 customer types (Retail / Wholesale / Dealer / Fleet / Government), 5 payment modes (Cash / UPI / Card / Bank Transfer / Credit), Dealer Discount Pricing card (Price List, Discount %, Discount Amount, Final Price) with auto-fill from customer type default, Owner override, UPI QR-code invoice PDF, WhatsApp/Email/Print share
+7. **KhataBook** — customer ledger keyed by mobile, running balance, credit + payment entries, auto-writes credit entry on Credit-mode sales
+8. **Customers** — list with search, per-customer purchase history, customerType + defaultDiscount saved on profile, per-customer total spent + total discount given
+9. **Reports** — Today/Week/Month with Total Sales, Retail Sales, Wholesale+Others (owner), Total Purchase (owner), Estimated Profit (owner), Total Discount Given (owner), GST breakdown (owner)
+10. **Global Search** — Brand · Model · Size · Vehicle name · Supplier · Customer · Invoice #. Vehicle lookup auto-suggests Front Size and Rear Size (seeded with 12 popular Indian vehicles).
+11. **Owner Admin Panel** — Brands / Tyre Models / Tyre Sizes / Vehicle Categories / Suppliers CRUD, Manage Users, Shop / GST / Invoice settings, Backup & Restore (JSON), Vehicles master (front/rear size DB)
+12. **RBAC** (Owner vs Staff) — enforced UI-side via `usePermissions()` hook:
+    - Staff: Retail bill only, no stock/price edits, no admin, no profit view, no delete bills, no GST settings, no purchase / AI scan
+    - Owner: full access
+13. Language switcher (22 official Indian languages)
 
-## Backend endpoints (FastAPI, prefix `/api`)
-- `POST /api/ocr/invoice` — vision OCR, returns `InvoiceExtraction` JSON
-- `POST /api/purchases/check-duplicate` — returns `{ duplicate: bool, match?: { ... } }`
-- `POST /api/purchases/index` — upsert into `purchase_index` for future dedupe
-- `GET/POST /api/status` — legacy demo endpoint kept for parity
+## RBAC matrix
+| Action                 | Owner | Staff |
+|------------------------|:-----:|:-----:|
+| Create Retail Bill     |  ✅   |  ✅   |
+| Create Wholesale/Dealer/Fleet/Gov |  ✅   |  ❌   |
+| Create Purchase / AI Scan | ✅ | ❌   |
+| Edit / Delete Tyre stock |  ✅ | ❌   |
+| Edit prices (MRP, list, retail) | ✅ | ❌ |
+| Access Admin Panel     |  ✅   |  ❌   |
+| View Profit reports    |  ✅   |  ❌   |
+| Delete bills           |  ✅   |  ❌   |
+| GST Settings           |  ✅   |  ❌   |
+| Manage customers/suppliers | ✅ | ❌   |
+| Backup / Restore       |  ✅   |  ❌   |
+| Receive payments (Khata) | ✅ | ✅ (both) |
+| Search inventory       |  ✅   |  ✅   |
+
+## Backend endpoints (`/api`)
+- `POST /ocr/invoice` — GPT-4o-mini vision OCR
+- `POST /purchases/check-duplicate` — duplicate-invoice check
+- `POST /purchases/index` — index a saved purchase
 
 ## Firestore collections
-- `tyres`, `purchases`, `sales`, `customers` (id = mobile), `khata`, `users`, `stock_movements`, `settings/shop`
-- Master: `brands`, `tyreModels`, `tyreSizes`, `vehicleCategories`, `suppliers`
-
-## Setup for real Firebase & production LLM billing
-Fill `/app/frontend/.env` with your Firebase Web-App config. `EMERGENT_LLM_KEY` is already provisioned on the backend — top up in Profile → Universal Key when the balance runs low. To swap in your own OpenAI / Anthropic / Gemini key, set it in `/app/backend/.env` and update `LlmChat(...).with_model(...)`.
+`tyres`, `purchases`, `sales`, `customers`, `khata`, `users`, `settings/shop`, `stock_movements`, `vehicles`, plus master: `brands`, `tyreModels`, `tyreSizes`, `vehicleCategories`, `suppliers`
 
 ## Not yet built (deliberate)
-- On-device PDF rasteriser (users are asked to upload the invoice as an image)
-- Thermal-printer specific 58/80 mm layouts (uses the OS print dialog instead)
-- Owner-vs-Staff enforcement in Firestore security rules (currently UI-only)
-- Actual full translations of UI copy into all 22 languages (switcher persists the code; strings remain English baseline)
-- Global search on the tab bar (dashboard already jumps to Customers / Inventory)
+- Firestore security rules — RBAC is enforced UI-side; server-side rules should mirror the matrix
+- Actual excel/CSV import UI (data model supports it, no dedicated screen shipped)
+- On-device PDF rasteriser for direct PDF OCR (Expo-native limitation)
+- Thermal 58/80 mm dedicated print templates (uses OS print dialog with the A4 template instead)
+- Barcode/QR barcode generator per tyre item (data model has `barcode` slot; UI/render not shipped)
+- Full UI-string translations into all 22 Indian languages

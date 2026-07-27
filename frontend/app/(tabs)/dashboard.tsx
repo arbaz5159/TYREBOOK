@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/context/AuthContext";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { listPurchases } from "@/src/firebase/purchase";
 import { listSales, listCustomers } from "@/src/firebase/sales";
 import { listTyres } from "@/src/firebase/inventory";
@@ -21,7 +22,13 @@ interface Stats {
   todayPurchase: number;
   todaySales: number;
   todayProfit: number;
+  todayRetail: number;
+  todayWholesale: number;
+  todayOld: number;
+  todayRemould: number;
   totalStock: number;
+  oldStock: number;
+  remouldStock: number;
   pendingKhata: number;
   lowStock: number;
   customerCount: number;
@@ -31,7 +38,13 @@ const ZERO: Stats = {
   todayPurchase: 0,
   todaySales: 0,
   todayProfit: 0,
+  todayRetail: 0,
+  todayWholesale: 0,
+  todayOld: 0,
+  todayRemould: 0,
   totalStock: 0,
+  oldStock: 0,
+  remouldStock: 0,
   pendingKhata: 0,
   lowStock: 0,
   customerCount: 0,
@@ -57,6 +70,7 @@ function inr(n: number) {
 export default function Dashboard() {
   const router = useRouter();
   const { user } = useAuth();
+  const perms = usePermissions();
   const [stats, setStats] = useState<Stats>(ZERO);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -70,27 +84,50 @@ export default function Dashboard() {
     const todayPurchase = purchases
       .filter((p) => isToday(p.date))
       .reduce((s, p) => s + (p.totalValue ?? 0), 0);
-    const todaySales = sales
-      .filter((s) => isToday(s.date))
+    const todaySalesList = sales.filter((s) => isToday(s.date));
+    const todaySales = todaySalesList.reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
+    const todayRetail = todaySalesList
+      .filter((s) => (s.customerType ?? "Retail") === "Retail")
       .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
-    const todayProfit = sales
-      .filter((s) => isToday(s.date))
-      .reduce((sum, s) => {
-        const tyre = tyres.find((t) => t.id === s.linkedTyreId);
-        const cost = (tyre?.purchasePrice ?? 0) * s.quantity;
-        return sum + ((s.sellingPrice * s.quantity) - cost);
-      }, 0);
+    const todayWholesale = todaySalesList
+      .filter((s) => s.customerType === "Wholesale")
+      .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
+    const todayOld = todaySalesList
+      .filter((s) => s.tyreClass === "old")
+      .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
+    const todayRemould = todaySalesList
+      .filter((s) => s.tyreClass === "remould")
+      .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
+    const todayProfit = todaySalesList.reduce((sum, s) => {
+      const tyre = tyres.find((t) => t.id === s.linkedTyreId);
+      const cost = (tyre?.purchasePrice ?? 0) * s.quantity;
+      return sum + (s.sellingPrice * s.quantity - cost);
+    }, 0);
     const pendingKhata = sales
       .filter((s) => s.paymentMode === "Credit")
       .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
     const totalStock = tyres.reduce((s, t) => s + (t.currentStock ?? 0), 0);
-    const lowStock = tyres.filter((t) => (t.currentStock ?? 0) <= LOW_STOCK_THRESHOLD).length;
+    const oldStock = tyres
+      .filter((t) => (t.tyreClass ?? "new") === "old")
+      .reduce((s, t) => s + (t.currentStock ?? 0), 0);
+    const remouldStock = tyres
+      .filter((t) => (t.tyreClass ?? "new") === "remould")
+      .reduce((s, t) => s + (t.currentStock ?? 0), 0);
+    const lowStock = tyres.filter(
+      (t) => (t.currentStock ?? 0) <= (t.minStockAlert ?? LOW_STOCK_THRESHOLD),
+    ).length;
 
     setStats({
       todayPurchase,
       todaySales,
       todayProfit,
+      todayRetail,
+      todayWholesale,
+      todayOld,
+      todayRemould,
       totalStock,
+      oldStock,
+      remouldStock,
       pendingKhata,
       lowStock,
       customerCount: customers.length,
@@ -135,27 +172,100 @@ export default function Dashboard() {
         {/* Hero KPI: Today's Sales */}
         <View style={styles.hero} testID="hero-todays-sales">
           <View style={styles.heroTop}>
-            <Text style={styles.heroLabel}>Today&apos;s Sales</Text>
+            <Text style={styles.heroLabel}>
+              {perms.isOwner ? "Today's Sales" : "Today's Retail Sales"}
+            </Text>
             <MaterialCommunityIcons name="trending-up" size={22} color={colors.onSurfaceInverse} />
           </View>
-          <Text style={styles.heroValue}>{inr(stats.todaySales)}</Text>
-          <View style={styles.heroSubRow}>
-            <View style={styles.heroPill}>
-              <Text style={styles.heroPillText}>Profit</Text>
-              <Text style={styles.heroPillValue}>{inr(stats.todayProfit)}</Text>
+          <Text style={styles.heroValue}>
+            {inr(perms.isOwner ? stats.todaySales : stats.todayRetail)}
+          </Text>
+          {perms.canViewProfit ? (
+            <View style={styles.heroSubRow}>
+              <View style={styles.heroPill}>
+                <Text style={styles.heroPillText}>Profit</Text>
+                <Text style={styles.heroPillValue}>{inr(stats.todayProfit)}</Text>
+              </View>
+              <View style={styles.heroPill}>
+                <Text style={styles.heroPillText}>Purchase</Text>
+                <Text style={styles.heroPillValue}>{inr(stats.todayPurchase)}</Text>
+              </View>
             </View>
-            <View style={styles.heroPill}>
-              <Text style={styles.heroPillText}>Purchase</Text>
-              <Text style={styles.heroPillValue}>{inr(stats.todayPurchase)}</Text>
+          ) : (
+            <View style={styles.heroSubRow}>
+              <View style={styles.heroPill}>
+                <Text style={styles.heroPillText}>Bills Today</Text>
+                <Text style={styles.heroPillValue}>{stats.todayRetail > 0 ? "Active" : "—"}</Text>
+              </View>
+              <View style={styles.heroPill}>
+                <Text style={styles.heroPillText}>Pending Khata</Text>
+                <Text style={styles.heroPillValue}>{inr(stats.pendingKhata)}</Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
-        {/* KPI grid */}
+        {/* KPI grid — Owner sees everything; Staff sees a restricted view */}
         <View style={styles.grid}>
           <KpiCard
+            icon="storefront-outline"
+            label="Retail Sales"
+            value={inr(stats.todayRetail)}
+            tint={colors.brandTertiary}
+            testID="kpi-retail-sales"
+          />
+          {perms.isOwner ? (
+            <KpiCard
+              icon="warehouse"
+              label="Wholesale"
+              value={inr(stats.todayWholesale)}
+              tint="#DCE7FF"
+              testID="kpi-wholesale-sales"
+            />
+          ) : null}
+          {perms.isOwner ? (
+            <KpiCard
+              icon="tire"
+              label="Old Tyre Sales"
+              value={inr(stats.todayOld)}
+              tint="#FFEAD1"
+              testID="kpi-old-sales"
+              onPress={() => router.push("/old-tyres")}
+            />
+          ) : null}
+          {perms.isOwner ? (
+            <KpiCard
+              icon="recycle-variant"
+              label="Remould Sales"
+              value={inr(stats.todayRemould)}
+              tint="#E9DAFF"
+              testID="kpi-remould-sales"
+              onPress={() => router.push("/remould")}
+            />
+          ) : null}
+          {perms.isOwner ? (
+            <KpiCard
+              icon="tire"
+              label="Old Tyre Stock"
+              value={String(stats.oldStock)}
+              tint="#FFEAD1"
+              testID="kpi-old-stock"
+              onPress={() => router.push("/old-tyres")}
+            />
+          ) : null}
+          {perms.isOwner ? (
+            <KpiCard
+              icon="tire"
+              label="Remould Stock"
+              value={String(stats.remouldStock)}
+              tint="#E9DAFF"
+              testID="kpi-remould-stock"
+              onPress={() => router.push("/remould")}
+            />
+          ) : null}
+          <KpiCard
             icon="package-variant"
-            label="Total Stock"
+            label="Current Inventory"
             value={String(stats.totalStock)}
             tint={colors.brandTertiary}
             testID="kpi-total-stock"
@@ -193,35 +303,59 @@ export default function Dashboard() {
             onPress={() => router.push("/sales/new")}
             testID="qa-new-sale"
           />
-          <QuickAction
-            icon="text-recognition"
-            label="AI Scan Invoice"
-            onPress={() => router.push("/smart-purchase")}
-            testID="qa-ai-scan"
-          />
-          <QuickAction
-            icon="cart-arrow-down"
-            label="New Purchase"
-            onPress={() => router.push("/purchase/new")}
-            testID="qa-new-purchase"
-          />
+          {perms.canCreatePurchase ? (
+            <QuickAction
+              icon="text-recognition"
+              label="AI Scan Invoice"
+              onPress={() => router.push("/smart-purchase")}
+              testID="qa-ai-scan"
+            />
+          ) : null}
+          {perms.canCreatePurchase ? (
+            <QuickAction
+              icon="cart-arrow-down"
+              label="New Purchase"
+              onPress={() => router.push("/purchase/new")}
+              testID="qa-new-purchase"
+            />
+          ) : null}
           <QuickAction
             icon="book-account-outline"
             label="KhataBook"
             onPress={() => router.push("/khata")}
             testID="qa-khata"
           />
-          <QuickAction
-            icon="plus-box-outline"
-            label="Add Tyre"
-            onPress={() => router.push("/inventory/tyre-form")}
-            testID="qa-add-tyre"
-          />
+          {perms.canEditStock ? (
+            <QuickAction
+              icon="plus-box-outline"
+              label="Add Tyre"
+              onPress={() => router.push("/inventory/tyre-form")}
+              testID="qa-add-tyre"
+            />
+          ) : null}
           <QuickAction
             icon="account-multiple-outline"
             label="Customers"
             onPress={() => router.push("/customers")}
             testID="qa-customers"
+          />
+          <QuickAction
+            icon="magnify"
+            label="Global Search"
+            onPress={() => router.push("/search")}
+            testID="qa-search"
+          />
+          <QuickAction
+            icon="tire"
+            label="Old Tyres"
+            onPress={() => router.push("/old-tyres")}
+            testID="qa-old-tyres"
+          />
+          <QuickAction
+            icon="recycle-variant"
+            label="Remould Tyres"
+            onPress={() => router.push("/remould")}
+            testID="qa-remould"
           />
         </View>
 
@@ -264,6 +398,7 @@ function KpiCard({
   tint,
   testID,
   tone = "default",
+  onPress,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
@@ -271,9 +406,10 @@ function KpiCard({
   tint: string;
   testID?: string;
   tone?: "default" | "danger";
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.kpi} testID={testID}>
+  const inner = (
+    <>
       <View style={[styles.kpiIcon, { backgroundColor: tint }]}>
         <MaterialCommunityIcons
           name={icon}
@@ -283,6 +419,18 @@ function KpiCard({
       </View>
       <Text style={styles.kpiLabel}>{label}</Text>
       <Text style={[styles.kpiValue, tone === "danger" && { color: colors.error }]}>{value}</Text>
+    </>
+  );
+  if (onPress) {
+    return (
+      <TouchableOpacity style={styles.kpi} testID={testID} onPress={onPress} activeOpacity={0.85}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <View style={styles.kpi} testID={testID}>
+      {inner}
     </View>
   );
 }

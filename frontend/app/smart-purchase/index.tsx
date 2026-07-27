@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -17,14 +17,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { scanInvoice, type InvoiceExtraction } from "@/src/api/ocr";
 import { storage } from "@/src/utils/storage";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const DRAFT_KEY = "tyrebook.smartPurchase.draft";
 
 export default function SmartPurchaseScanner() {
   const router = useRouter();
+  const perms = usePermissions();
   const [busy, setBusy] = useState<null | "camera" | "gallery" | "pdf">(null);
   const [error, setError] = useState<string | null>(null);
+
+  if (!perms.canCreatePurchase) return <Redirect href="/(tabs)/dashboard" />;
 
   const run = async (b64: string, mime: string, imageUri?: string) => {
     setError(null);

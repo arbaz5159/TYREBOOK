@@ -16,15 +16,21 @@ import { AppTextField } from "@/src/components/AppTextField";
 import { ChipRow } from "@/src/components/ChipRow";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import {
+  CUSTOMER_TYPES,
+  DEFAULT_DISCOUNT_BY_TYPE,
   PAYMENT_MODES,
+  TYRE_CLASSES,
   VEHICLE_CATEGORIES,
+  type CustomerType,
   type PaymentMode,
+  type TyreClass,
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
 import { createSale } from "@/src/firebase/sales";
 import { getShopSettings } from "@/src/firebase/master";
 import { addKhataEntry } from "@/src/firebase/khata";
 import { generateAndShareInvoice, type InvoiceType } from "@/src/utils/invoicePdf";
+import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
@@ -40,15 +46,20 @@ const INVOICE_TYPES: InvoiceType[] = [
 
 export default function NewSale() {
   const router = useRouter();
+  const perms = usePermissions();
   const [customerName, setCustomer] = useState("");
   const [mobileNumber, setMobile] = useState("");
   const [vehicleNumber, setVehicle] = useState("");
   const [categoryId, setCategoryId] = useState<VehicleCategoryId>("car");
+  const [tyreClass, setTyreClass] = useState<TyreClass>("new");
+  const [customerType, setCustomerType] = useState<CustomerType>("Retail");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
   const [quantity, setQuantity] = useState("");
   const [sellingPrice, setPrice] = useState("");
+  const [priceList, setPriceList] = useState("");
+  const [discountPercent, setDiscountPercent] = useState("");
   const [gstPercent, setGst] = useState<number>(18);
   const [paymentMode, setPayment] = useState<PaymentMode>("Cash");
   const [invoiceType, setInvoiceType] = useState<InvoiceType>("Tax Invoice");
@@ -59,6 +70,15 @@ export default function NewSale() {
   const subtotal = (Number(quantity) || 0) * (Number(sellingPrice) || 0);
   const gstAmount = (subtotal * gstPercent) / 100;
   const total = subtotal + gstAmount;
+
+  // Discount math (per unit): if user typed priceList and discount% we compute
+  // the final selling price. Owner can override the discount % during billing.
+  const listNum = Number(priceList) || 0;
+  const discNum = Number(discountPercent) || 0;
+  const discountAmount = +(listNum * (discNum / 100)).toFixed(2);
+  const finalPrice = +(listNum - discountAmount).toFixed(2);
+  // Auto-sync the discounted final price into sellingPrice when list is set.
+  const effectiveSellingPrice = listNum > 0 ? finalPrice : Number(sellingPrice) || 0;
 
   const onSave = async () => {
     setErr(null);
@@ -78,13 +98,18 @@ export default function NewSale() {
         customerName: customerName.trim(),
         mobileNumber: mobileNumber.trim(),
         vehicleNumber: vehicleNumber.trim().toUpperCase(),
+        customerType,
         date: saleDate,
         categoryId,
+        tyreClass,
         brand: brand.trim(),
         model: model.trim(),
         size: size.trim(),
         quantity: Number(quantity),
-        sellingPrice: Number(sellingPrice) || 0,
+        priceList: listNum,
+        discountPercent: discNum,
+        discountAmount,
+        sellingPrice: effectiveSellingPrice,
         gstPercent,
         paymentMode,
       };
@@ -150,6 +175,33 @@ export default function NewSale() {
             </View>
           </View>
 
+          <Text style={styles.label}>Customer Type</Text>
+          <ChipRow
+            options={CUSTOMER_TYPES.map((c) => ({
+              value: c,
+              label: !perms.canCreateWholesale && c !== "Retail" ? `${c} (Owner)` : c,
+            }))}
+            value={customerType}
+            onChange={(v) => {
+              if (!perms.canCreateWholesale && v !== "Retail") {
+                setErr("Only the shop Owner can create non-retail bills.");
+                return;
+              }
+              setErr(null);
+              setCustomerType(v);
+              setDiscountPercent(String(DEFAULT_DISCOUNT_BY_TYPE[v] ?? 0));
+            }}
+            testIDPrefix="sale-custtype"
+          />
+
+          <Text style={styles.label}>Tyre Class</Text>
+          <ChipRow
+            options={TYRE_CLASSES.map((c) => ({ value: c.value, label: c.label }))}
+            value={tyreClass}
+            onChange={setTyreClass}
+            testIDPrefix="sale-class"
+          />
+
           <Text style={styles.label}>Vehicle Category</Text>
           <ChipRow
             options={VEHICLE_CATEGORIES.map((c) => ({ value: c.id, label: c.name }))}
@@ -170,6 +222,47 @@ export default function NewSale() {
                 <AppTextField label="Selling Price (₹)" value={sellingPrice} onChangeText={setPrice} keyboardType="numeric" placeholder="0" testID="sale-price" />
               </View>
             </View>
+
+            <Text style={styles.label}>Dealer Discount Pricing (optional)</Text>
+            <View style={{ flexDirection: "row" }}>
+              <View style={{ flex: 1, marginRight: spacing.sm }}>
+                <AppTextField
+                  label="Company Price List (₹)"
+                  value={priceList}
+                  onChangeText={setPriceList}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  testID="sale-pricelist"
+                />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <AppTextField
+                  label="Discount %"
+                  value={discountPercent}
+                  onChangeText={setDiscountPercent}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  editable={perms.canEditPrices}
+                  testID="sale-discount"
+                />
+              </View>
+            </View>
+            {listNum > 0 ? (
+              <View style={styles.discountCard} testID="discount-card">
+                <View style={styles.dcRow}>
+                  <Text style={styles.dcLabel}>Price List</Text>
+                  <Text style={styles.dcValue}>₹{listNum.toFixed(2)}</Text>
+                </View>
+                <View style={styles.dcRow}>
+                  <Text style={styles.dcLabel}>Discount ({discNum}%)</Text>
+                  <Text style={[styles.dcValue, { color: colors.error }]}>−₹{discountAmount.toFixed(2)}</Text>
+                </View>
+                <View style={[styles.dcRow, styles.dcBig]}>
+                  <Text style={styles.dcLabelBig}>Final Price</Text>
+                  <Text style={styles.dcValueBig}>₹{finalPrice.toFixed(2)}</Text>
+                </View>
+              </View>
+            ) : null}
 
             <Text style={styles.label}>GST %</Text>
             <ChipRow
@@ -270,6 +363,18 @@ const styles = StyleSheet.create({
     borderTopColor: colors.divider,
     backgroundColor: colors.surface,
   },
+  discountCard: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.brandTertiary,
+  },
+  dcRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
+  dcLabel: { fontSize: fontSize.sm, color: colors.onBrandTertiary },
+  dcValue: { fontSize: fontSize.sm, color: colors.onBrandTertiary, fontWeight: "700" },
+  dcBig: { marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.15)" },
+  dcLabelBig: { fontSize: fontSize.base, fontWeight: "800", color: colors.onBrandTertiary },
+  dcValueBig: { fontSize: fontSize.lg, fontWeight: "800", color: colors.brandPrimary },
 });
 
 const sumStyles = StyleSheet.create({

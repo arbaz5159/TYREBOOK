@@ -99,6 +99,8 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
   const id = sale.mobileNumber.trim();
   if (!id) return;
 
+  const discountThisSale = (Number(sale.discountAmount) || 0) * (Number(sale.quantity) || 0);
+
   if (!db) {
     const list = await readLocalCustomers();
     const existing = list.find((c) => c.id === id);
@@ -107,7 +109,9 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
       if (sale.vehicleNumber && !existing.vehicleNumbers.includes(sale.vehicleNumber)) {
         existing.vehicleNumbers.push(sale.vehicleNumber);
       }
+      existing.customerType = sale.customerType ?? existing.customerType ?? "Retail";
       existing.totalSpent = +(existing.totalSpent + sale.totalValue).toFixed(2);
+      existing.totalDiscountGiven = +(((existing.totalDiscountGiven ?? 0) + discountThisSale)).toFixed(2);
       existing.saleCount += 1;
       existing.lastPurchaseAt = sale.date;
     } else {
@@ -116,7 +120,10 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
         name: sale.customerName,
         mobileNumber: id,
         vehicleNumbers: sale.vehicleNumber ? [sale.vehicleNumber] : [],
+        customerType: sale.customerType ?? "Retail",
+        defaultDiscount: 0,
         totalSpent: sale.totalValue,
+        totalDiscountGiven: discountThisSale,
         saleCount: 1,
         lastPurchaseAt: sale.date,
         createdAt: Date.now(),
@@ -138,7 +145,10 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
         name: sale.customerName || cur.name,
         mobileNumber: id,
         vehicleNumbers: Array.from(vehicles),
+        customerType: sale.customerType ?? cur.customerType ?? "Retail",
+        defaultDiscount: cur.defaultDiscount ?? 0,
         totalSpent: +((cur.totalSpent ?? 0) + sale.totalValue).toFixed(2),
+        totalDiscountGiven: +(((cur.totalDiscountGiven ?? 0) + discountThisSale)).toFixed(2),
         saleCount: (cur.saleCount ?? 0) + 1,
         lastPurchaseAt: sale.date,
       },
@@ -149,7 +159,10 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
       name: sale.customerName,
       mobileNumber: id,
       vehicleNumbers: sale.vehicleNumber ? [sale.vehicleNumber] : [],
+      customerType: sale.customerType ?? "Retail",
+      defaultDiscount: 0,
       totalSpent: sale.totalValue,
+      totalDiscountGiven: discountThisSale,
       saleCount: 1,
       lastPurchaseAt: sale.date,
       createdAt: serverTimestamp(),
