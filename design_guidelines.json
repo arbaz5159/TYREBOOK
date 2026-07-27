@@ -1,0 +1,180 @@
+{
+  "app_name": "TyreBook",
+  "personality": "2 Material You / Expressive LIGHT",
+  "personality_one_liner": "A trustworthy, clean, and modern utility interface relying on adaptive teal surfaces instead of heavy shadows to organize dense business data.",
+  "color": {
+    "surface": "#F8FAF9",
+    "onSurface": "#191C1B",
+    "surfaceSecondary": "#E9EFEE",
+    "onSurfaceSecondary": "#3F4947",
+    "surfaceTertiary": "#DDE5E4",
+    "onSurfaceTertiary": "#191C1B",
+    "surfaceInverse": "#2E3130",
+    "onSurfaceInverse": "#EFF1F0",
+    "brand": "#006B5F",
+    "brandPrimary": "#006B5F",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#4A635E",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#CCE8E3",
+    "onBrandTertiary": "#05201C",
+    "success": "#146C2E",
+    "onSuccess": "#FFFFFF",
+    "warning": "#8D4F00",
+    "onWarning": "#FFFFFF",
+    "error": "#BA1A1A",
+    "onError": "#FFFFFF",
+    "border": "#BEC9C7",
+    "borderStrong": "#6F7978",
+    "divider": "#DDE5E4"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous paddings on cards for scannability, tighter margins inside data lists. Use flexible spacing for dynamic Indian language line heights.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 0,
+  "navigation": "bottom_tabs",
+  "icon_set": "MaterialCommunityIcons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [],
+    "dont's": [
+      "Do not use blur or glass effects in this app; rely entirely on solid MD3 tonal surfaces and color to convey hierarchy."
+    ]
+  },
+  "haptics": {
+    "events": {
+      "primary_button_press": "impactLight",
+      "tab_change": "selection",
+      "role_toggle": "impactMedium",
+      "status_success": "notificationSuccess",
+      "status_error": "notificationError"
+    }
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceSecondary",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Splash",
+      "purpose": "A trusted first impression highlighting the TyreBook brand.",
+      "states": {
+        "loading": "Brand primary background with the abstract blue wheel logo in the center.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full-bleed brandPrimary background. Center the 'wheel_logo' image inside a pill/circle container. Below it, 'TyreBook' in large white display typography. Keep it minimal and quick."
+    },
+    {
+      "name": "Login",
+      "purpose": "Secure entry point with a role toggle for Owner or Staff.",
+      "states": {
+        "loading": "Submit button shows a spinner.",
+        "empty": "Default input fields.",
+        "error": "Inline error messages below inputs in 'error' color."
+      },
+      "layout": "Top portion features the logo and a welcome message. Use a segmented control (pill shaped, using brandTertiary for the active state) to toggle between Owner and Staff. Standard MD3 text fields for phone/email and password. Full-width primary CTA pinned above the keyboard."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "The command center showing operational KPIs at a glance.",
+      "states": {
+        "loading": "Skeleton blocks mapping the card layout.",
+        "empty": "Zeroed out stats with 'No data yet' placeholder text.",
+        "error": "Error boundary card with a retry button."
+      },
+      "layout": "Top App Bar with business name and language switcher icon. Hero Card (surfaceInverse or brandSecondary background) showing 'Today's Sales' as the north star metric. Below, a 2-column grid (flexWrap, space-between) of secondary KPI cards: 'Today's Purchase', 'Today's Profit', 'Total Stock', 'Pending Khata', 'Low Stock', 'Customer Count'. Cards use surfaceSecondary with no shadow. Implement a floating action button (FAB) for 'Quick Bill' pinned to bottom right."
+    },
+    {
+      "name": "Inventory",
+      "purpose": "List of all tyre stock and quick status monitoring.",
+      "states": {
+        "loading": "List skeleton.",
+        "empty": "Show 'empty_boxes' image with 'No stock found, add your first tyre' message.",
+        "error": "Standard retry error view."
+      },
+      "layout": "Search bar at the top inside a sticky surface header. List of tyre SKUs below. Each list item uses a leading brandTertiary rounded box with a tyre icon, title (size/brand), subtitle (price), and trailing stock count. Use red (error) text if stock is below threshold. Use a divider between rows."
+    },
+    {
+      "name": "Billing",
+      "purpose": "Create and view GST bills seamlessly.",
+      "states": {
+        "loading": "Spinner during bill generation.",
+        "empty": "Illustration of receipt with 'No bills generated yet'.",
+        "error": "Error fetching GST details, show retry."
+      },
+      "layout": "Segmented tabs at top: 'Create Bill' / 'Past Bills'. Create flow is a single-scroll form with 'Add Item' button opening a bottom sheet. 'Save & Print' sticky primary CTA at bottom. Past Bills is a simple list view with invoice #, date, and amount."
+    },
+    {
+      "name": "Reports",
+      "purpose": "View detailed business and Khata insights.",
+      "states": {
+        "loading": "Chart skeletons.",
+        "empty": "Empty state illustration.",
+        "error": "Error loading reports."
+      },
+      "layout": "Vertical scroll layout. Filter chips horizontally at the top (Today, Week, Month). Sections underneath for Sales, Khata balances, and Tax summary. Use simple bar charts (can mock visually with flex views) and summary cards."
+    },
+    {
+      "name": "Settings",
+      "purpose": "Manage business profile and app preferences.",
+      "states": {
+        "loading": "Spinner.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "List layout. Leading icons in brandTertiary squares for each row. Important row for 'Language Switcher' (Hindi, English, etc). Include logout at the bottom in warning/error tone."
+    }
+  ],
+  "images": {
+    "wheel_logo": {
+      "url": "https://images.unsplash.com/photo-1614088449375-406d980a2987?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHx0eXJlJTIwd2hlZWwlMjBsb2dvJTIwbWluaW1hbGlzdGljJTIwYmx1ZXxlbnwwfHx8fDE3ODUxNTM2MDZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract blue wheel logo for splash screen"
+    },
+    "empty_boxes": {
+      "url": "https://images.unsplash.com/photo-1624137527136-66e631bdaa0e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxlbXB0eSUyMGNhcmRib2FyZCUyMGJveCUyMHdhcmVob3VzZXxlbnwwfHx8fDE3ODUxNTM2MDd8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Empty white cardboard box for inventory empty state"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build the UI focusing strictly on the Material Design 3 structure. No heavy drop shadows. Use tonal separation via surface, surfaceSecondary, and surfaceTertiary.",
+    "Implement Firebase Auth and Firestore setup in the project architecture as requested, though logic can be mocked/bypassed if just focusing on UI completion.",
+    "Ensure 'Plus Jakarta Sans' and 'Geist' are loaded using expo-font.",
+    "The Dashboard must have one main 'Hero' card for the most critical metric (e.g., Today's Sales), followed by a 2-column grid of smaller KPI cards. This is based on 2026 SMB dashboard design patterns for scannability.",
+    "Implement the role toggle on the Login screen as a visually distinct segmented control (use brandTertiary for active states).",
+    "Avoid the color purple/indigo entirely. Rely strictly on the teal palette provided.",
+    "Create a language switcher UI in the Settings, though functionality can be mocked."
+  ]
+}
