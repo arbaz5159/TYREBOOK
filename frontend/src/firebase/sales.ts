@@ -21,6 +21,7 @@ import { storage } from "@/src/utils/storage";
 import { getDb } from "./config";
 import { listTyres, updateTyre } from "./inventory";
 import type { Customer, Sale } from "@/src/constants/inventory";
+import { localId } from "@/src/utils/localId";
 
 const SALES = "sales";
 const CUSTOMERS = "customers";
@@ -208,7 +209,7 @@ export async function createSale(
   const db = getDb();
   if (!db) {
     const list = await readLocalSales();
-    const id = `local-${Date.now()}`;
+    const id = localId();
     list.push({ ...payload, id });
     await writeLocalSales(list);
     return { id, warning };

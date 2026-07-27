@@ -59,7 +59,7 @@ export default function MasterEditor() {
     load();
   }, [load]);
 
-  if (user && user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
   if (!validCollection) return <Redirect href="/admin" />;
   const col = validCollection;
   const meta = TITLES[col];

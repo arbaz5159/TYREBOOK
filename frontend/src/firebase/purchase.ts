@@ -17,6 +17,7 @@ import { storage } from "@/src/utils/storage";
 import { getDb } from "./config";
 import { incrementTyreStock } from "./inventory";
 import type { Purchase } from "@/src/constants/inventory";
+import { localId } from "@/src/utils/localId";
 
 const COLLECTION = "purchases";
 const LOCAL_KEY = "tyrebook.purchases";
@@ -76,7 +77,7 @@ export async function createPurchase(
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    const id = `local-${Date.now()}`;
+    const id = localId();
     list.push({ ...payload, id });
     await writeLocal(list);
     return id;

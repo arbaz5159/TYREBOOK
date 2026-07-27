@@ -216,7 +216,8 @@ export default function AdminHome() {
     }, [load]),
   );
 
-  if (user && user.role !== "owner") {
+  if (!user) return null;
+  if (user.role !== "owner") {
     return <Redirect href="/(tabs)/settings" />;
   }
 

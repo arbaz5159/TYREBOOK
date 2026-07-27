@@ -16,6 +16,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { getTyre, updateTyre } from "./inventory";
+import { localId } from "@/src/utils/localId";
 
 export type MovementDirection = "in" | "out";
 
@@ -93,7 +94,7 @@ export async function recordMovement(input: {
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    const id = `local-${now}`;
+    const id = localId();
     list.push({ ...payload, id });
     await writeLocal(list);
     return { id, balanceAfter: newStock };

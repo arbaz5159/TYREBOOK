@@ -19,6 +19,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import type { Tyre, VehicleCategoryId } from "@/src/constants/inventory";
+import { localId } from "@/src/utils/localId";
 
 const COLLECTION = "tyres";
 const LOCAL_KEY = "tyrebook.tyres";
@@ -74,7 +75,7 @@ export async function createTyre(data: Omit<Tyre, "id">): Promise<string> {
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    const id = `local-${now}`;
+    const id = localId();
     list.push({ ...data, id, createdAt: now, updatedAt: now });
     await writeLocal(list);
     return id;

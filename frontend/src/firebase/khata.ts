@@ -18,6 +18,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { localId } from "@/src/utils/localId";
 
 export type KhataDirection = "credit" | "payment"; // credit = shop gave, payment = customer paid
 
@@ -72,7 +73,7 @@ export async function addKhataEntry(data: Omit<KhataEntry, "id" | "createdAt">):
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    const id = `local-${now}`;
+    const id = localId();
     list.push({ ...data, id, createdAt: now });
     await writeLocal(list);
     return id;

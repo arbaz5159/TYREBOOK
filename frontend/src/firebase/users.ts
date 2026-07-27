@@ -16,6 +16,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { localId } from "@/src/utils/localId";
 
 export interface StaffUser {
   id: string;
@@ -53,7 +54,7 @@ export async function createUser(data: Omit<StaffUser, "id">): Promise<string> {
   const db = getDb();
   if (!db) {
     const list = await readLocal();
-    const id = `local-${Date.now()}`;
+    const id = localId();
     list.push({ ...data, id, createdAt: Date.now() });
     await writeLocal(list);
     return id;

@@ -19,6 +19,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { localId } from "@/src/utils/localId";
 
 export type MasterCollection =
   | "brands"
@@ -68,7 +69,7 @@ export async function createMaster(
   const db = getDb();
   if (!db) {
     const list = await readLocal(c);
-    const id = `local-${now}`;
+    const id = localId();
     list.push({ ...data, id, createdAt: now, updatedAt: now });
     await writeLocal(c, list);
     return id;

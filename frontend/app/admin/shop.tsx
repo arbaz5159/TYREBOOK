@@ -43,7 +43,7 @@ export default function ShopSettingsScreen() {
     (async () => setForm(await getShopSettings()))();
   }, []);
 
-  if (user && user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
 
   const update = (patch: Partial<ShopSettings>) => setForm((p) => ({ ...p, ...patch }));
 

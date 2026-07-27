@@ -135,7 +135,7 @@ export default function AdminDashboard() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (user && user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
