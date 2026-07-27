@@ -161,6 +161,42 @@ frontend:
         agent: "main"
         comment: "Added 'Old Tyres' and 'Remould Tyres' sections showing Sales Value, Tyres Sold, Current Stock and (owner-only) Profit under Today / Week / Month range."
 
+  - task: "Owner Admin Panel — professional hub"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/admin/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Rewrote hub as Material 3 grid of 11 sections organized in 5 groups (Overview, Data, People, Configuration, System). Live KPI strip pulls tyre count, 30d sales, customers and user counts. Every screen has a persistent AdminBottomNav (Home / KPIs / Master / Users / Settings) and consistent AdminHeader with OWNER crown badge. All routes owner-guarded via Redirect."
+
+  - task: "Admin new pages (dashboard, pricing, ai-scanner, app-settings)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/admin/{dashboard,pricing,ai-scanner,app-settings}.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Dashboard shows Business Health / Inventory / Tax / People sections (30d window). Pricing has default GST%, min-margin%, and per-CustomerType discount overrides (persisted). AI Scanner lets owner choose OCR model, monthly limit, autolink & review toggles. App Settings toggles PDF/WhatsApp/alerts, language, currency, low-stock threshold. All persisted to AsyncStorage via storage util."
+
+  - task: "Staff RBAC guard for /admin"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/admin/*.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Every admin screen calls `if (user.role !== 'owner') return <Redirect href='/(tabs)/settings' />`. Verified manually: staff@test.com navigating to /admin lands on /settings without seeing any admin content."
+
 metadata:
   created_by: "main_agent"
   version: "1.1"
@@ -169,10 +205,10 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Dashboard runtime error (undefined oldStock / remouldStock)"
-    - "Old Tyres module (Car / Truck)"
-    - "Remould Tyres module (Bike / Truck / Tractor)"
-    - "Reports segregation: Old & Remould breakdown"
+    - "Owner Admin Panel — professional hub with all 11 sections"
+    - "Admin bottom navigation (persistent)"
+    - "Staff RBAC — cannot access /admin routes"
+    - "New pages: dashboard, pricing, ai-scanner, app-settings"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

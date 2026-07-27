@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only regression on the new Owner Admin Panel for TyreBook (mobile 390x844, Firebase empty → AsyncStorage fallback). Every checklist item passes. OWNER path: /admin renders the AdminHeader with `owner-badge`, the 4-pill `admin-kpi-strip`, and all 12 required tiles (dashboard, reports, master, inventory, pricing, customers, suppliers, users, shop, ai, settings, backup) — each tile navigates to the correct route. The persistent `admin-bottom-nav` with 5 tabs (home, kpis, master, users, settings) is present on the hub AND on every sub-page (dashboard, pricing, ai-scanner, app-settings). /admin/dashboard shows all 4 sections (Business Health / Inventory / Tax / People) plus Old Tyre Stock and Remould Stock rows. Persistence verified with page reload: Pricing wholesale=20 persists (`tyrebook.pricingConfig`), AI Scanner model=gpt-4o + requireOwnerReview=false persists (`tyrebook.aiConfig` = `{...\"model\":\"gpt-4o\",\"requireOwnerReview\":false,...}`), App Settings currency='$' persists (`tyrebook.appSettings`). STAFF path (RBAC): all 8 admin URLs (/admin, /admin/dashboard, /admin/pricing, /admin/ai-scanner, /admin/app-settings, /admin/users, /admin/shop, /admin/backup) immediately redirect to /settings with NO admin content leaked (owner-badge, admin-kpi-strip, admin-bottom-nav all absent). Staff /settings does not expose the Owner Admin Panel, Shop Details, or GST & Invoice Settings rows. Staff /dashboard does not show the `open-admin-panel` banner. Regression on owner /dashboard: kpi-old-sales, kpi-remould-sales, kpi-old-stock, kpi-remould-stock, qa-old-tyres, qa-remould, and open-admin-panel banner all still render — no regression from iteration_2. ZERO PAGEERRORS observed across owner + staff runs.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "internal (react-native-web)", "issue": "Console warning `props.pointerEvents is deprecated. Use style.pointerEvents` — same pre-existing dependency warning as iteration_2, not from admin panel code."},
+      {"component": "internal (react-native-web Image)", "issue": "Console warning `Image: style.resizeMode is deprecated. Please use props.resizeMode.` — dependency-level, not blocking. Not from admin panel code."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_3.json", "/app/test_reports/iteration_2.json", "/app/test_reports/iteration_1.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminHeader (`src/components/AdminHeader.tsx`) applies OWNER badge unconditionally when `showBadge` is true (default). Since every admin screen is guarded by `Redirect href=\"/(tabs)/settings\"` for non-owners the badge is safe, but consider hiding it if `user?.role !== 'owner'` for defence-in-depth if the guard is ever removed.",
+    "Redirect guard `if (user && user.role !== 'owner') return <Redirect ...>` fires only after AuthContext hydrates. During hydration the screen briefly renders — verified in tests that staff never sees admin content because the guard resolves before any tile is interactive. Fine for current flow.",
+    "AdminBottomNav's `Users` tab match() also matches /admin/shop and /admin/pricing, and `Settings` tab match() matches /admin/backup and /admin/ai-scanner — grouping is intentional and the highlight state works correctly on those screens.",
+    "Pricing/AI/AppSettings pages use `storage.setItem(KEY, JSON.stringify(cfg))` which double-encodes on read only if storage wraps JSON.stringify itself — verified on web that JSON.parse(raw) succeeds and returns the object. AI scanner storage snapshot `{\"tyrebook.aiConfig\":\"\\\"{...}\\\"\"}` shows the value is stored as a JSON-encoded JSON string; downstream reads must JSON.parse twice. Not a functional bug for these three screens because they own the read/write path, but any other consumer of these keys must do `JSON.parse(JSON.parse(raw))` — worth documenting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only test)", "frontend": "100% (14/14 checklist items pass)"},
+  "seed_data_creation": "None — used AsyncStorage defaults. Wrote tyrebook.pricingConfig (wholesale=20), tyrebook.aiConfig (model=gpt-4o, requireOwnerReview=false), tyrebook.appSettings (currencySymbol='$', enableLowStockAlerts=false) during persistence verification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Owner: owner@test.com / password (any 6+ char pwd works). Staff: staff@test.com / password. Login inputs render with data-testid directly ON the <input> element (React Native Web), so use selector `input[data-testid=\"login-email-input\"]` NOT `[data-testid=...] input`. Admin routes: /admin, /admin/dashboard, /admin/pricing, /admin/ai-scanner, /admin/app-settings, /admin/users, /admin/shop, /admin/backup, /admin/master/[collection]. RBAC uses `Redirect href=\"/(tabs)/settings\"` — final URL after redirect is `/settings`. Persistence uses AsyncStorage → localStorage keys `tyrebook.pricingConfig` / `tyrebook.aiConfig` / `tyrebook.appSettings`. Bottom nav testIDs: admin-nav-home, -kpis, -master, -users, -settings.",
+  "rca_of_issue": "N/A — no bugs surfaced this iteration."
+}
