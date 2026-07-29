@@ -1,0 +1,251 @@
+<!doctype html>
+<html><head><meta charset="utf-8" />
+<title>Tax Invoice SKT-0001</title>
+<style>
+  @page { size: A4; margin: 8mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: #000; font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif; font-size: 11px; }
+  .sheet { width: 100%; }
+  .doc-title { text-align: center; font-size: 13px; font-weight: 700; padding: 2px 0 4px; letter-spacing: 0.5px; }
+  .doc-title small { font-size: 10px; font-weight: 400; float: right; }
+  table.grid { width: 100%; border-collapse: collapse; }
+  table.grid th, table.grid td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; }
+  table.grid th { background: #F0F0F0; font-weight: 700; text-align: left; font-size: 10px; }
+  .lbl { color: #000; font-weight: 400; font-size: 10px; }
+  .val { font-weight: 700; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .no-b { border: none !important; padding: 2px 4px !important; }
+  .thin td, .thin th { padding: 3px 6px; }
+  .items th { text-align: center; background: #F0F0F0; font-size: 10px; }
+  .items td { font-size: 11px; }
+  .money { font-variant-numeric: tabular-nums; }
+  .decl { font-size: 10px; line-height: 1.35; }
+  .sig { min-height: 70px; text-align: right; font-size: 10px; }
+  .sig .sig-line { border-top: 1px solid #000; margin-top: 40px; padding-top: 2px; font-weight: 700; display: inline-block; min-width: 180px; }
+  .footer-note { text-align: center; font-size: 10px; padding: 4px 0; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="doc-title">
+    <span style="visibility:hidden">.</span>
+    Tax Invoice
+    <small>(ORIGINAL FOR RECIPIENT)</small>
+  </div>
+
+  <!-- Seller + Invoice metadata -->
+  <table class="grid">
+    <tr>
+      <td rowspan="6" style="width:52%; vertical-align: top;">
+        <table style="width:100%; border-collapse: collapse;">
+          <tr>
+            <td class="no-b" style="width:70px; vertical-align: top;"><div style="width:60px;height:60px;border:2px solid #B91C1C;color:#B91C1C;
+        display:flex;align-items:center;justify-content:center;font-weight:900;font-size:33px;
+        font-family:'Impact','Arial Black',sans-serif;border-radius:6px;">S</div></td>
+            <td class="no-b" style="vertical-align: top;">
+              <div style="font-size:14px; font-weight:800;">Sri Krishna Tyres</div>
+              <div style="font-size:10px;">45 MG Road, Fatima Nagar, Pune 411013</div>
+              <div style="font-size:10px;"><b>GSTIN/UIN</b> : 27AAAPL1234C1Z9</div>
+              <div style="font-size:10px;">State Name  : Maharashtra, Code : 27</div>
+              <div style="font-size:10px;">Contact : 9876543210</div>
+              <div style="font-size:10px;">E-Mail : krishna@srktyres.in</div>
+              <div style="font-size:10px;">PAN : AAAPL1234C</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td style="width:24%"><span class="lbl">Invoice No.</span><br /><span class="val">SKT-0001</span></td>
+      <td style="width:24%"><span class="lbl">Dated</span><br /><span class="val">29-07-2026</span></td>
+    </tr>
+    <tr>
+      <td><span class="lbl">Delivery Note</span><br />&nbsp;</td>
+      <td><span class="lbl">Mode/Terms of Payment</span><br /><span class="val">Bank Transfer</span></td>
+    </tr>
+    <tr>
+      <td><span class="lbl">Reference No. &amp; Date</span><br />&nbsp;</td>
+      <td><span class="lbl">Other References</span><br />&nbsp;</td>
+    </tr>
+    <tr>
+      <td><span class="lbl">Buyer's Order No.</span><br />&nbsp;</td>
+      <td><span class="lbl">Dated</span><br />&nbsp;</td>
+    </tr>
+    <tr>
+      <td><span class="lbl">Dispatch Doc No.</span><br />&nbsp;</td>
+      <td><span class="lbl">Delivery Note Date</span><br />&nbsp;</td>
+    </tr>
+    <tr>
+      <td><span class="lbl">Dispatched through</span><br />&nbsp;</td>
+      <td><span class="lbl">Destination</span><br />State code 29</td>
+    </tr>
+  </table>
+
+  <!-- Buyer block -->
+  <table class="grid" style="border-top: none;">
+    <tr>
+      <td style="width:52%;">
+        <div class="lbl">Buyer (Bill to)</div>
+        <div style="font-size:12px; font-weight:800;">M/S SS Enterprises</div>
+        <div>01, Shaikh Main Road, Sufiya Masjid, Latur, Maharashtra 413512</div>
+        <div>Mobile : 9520894011</div>
+        <div><b>GSTIN/UIN</b> : 27KWLPS9213L1ZJ</div>
+        <div>State Code : 29</div>
+        <div>Vehicle Type : <b>Truck</b></div>
+        <div>Vehicle No. : <b>KA05FT1273</b></div>
+      </td>
+      <td style="width:48%;">
+        <div class="lbl">Terms of Delivery</div>
+        <div>&nbsp;</div>
+        <div>&nbsp;</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Line items -->
+  <table class="grid items" style="border-top:none;">
+    <thead>
+      <tr>
+        <th class="center" style="width:26px;">Sl<br/>No.</th>
+        <th>Description of Goods</th>
+        <th class="center" style="width:64px;">HSN/SAC</th>
+        <th class="center" style="width:44px;">GST<br/>Rate</th>
+        <th class="center" style="width:70px;">Quantity</th>
+        <th class="right" style="width:70px;">Rate</th>
+        <th class="center" style="width:32px;">per</th>
+        <th class="center" style="width:58px;">Disc. %</th>
+        <th class="right" style="width:96px;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="center">1</td>
+        <td>
+          <div><b>MRF STEEL MUSCLE S1L4 10.00 R20</b></div>
+          
+        </td>
+        <td class="center">4011</td>
+        <td class="center">28%</td>
+        <td class="center">8 Nos.</td>
+        <td class="right money">22,500.00</td>
+        <td class="center">Nos.</td>
+        <td class="center">7 %</td>
+        <td class="right money">1,67,400.00</td>
+      </tr>
+      <!-- filler rows to keep the tabular look -->
+      <tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr><tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr><tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr><tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr><tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr><tr>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+          </tr>
+      <tr>
+        <td colspan="7" class="right"><b>OUTPUT IGST</b></td>
+        <td>&nbsp;</td>
+        <td class="right money">46,872.00</td>
+      </tr>
+      
+      
+      <tr>
+        <td>&nbsp;</td>
+        <td class="right"><b>Total</b></td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td class="center"><b>8 Nos.</b></td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td class="right money"><b>₹ 2,14,272.00</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Amount in words -->
+  <table class="grid" style="border-top:none;">
+    <tr>
+      <td>
+        <div class="lbl">Amount Chargeable (in words)</div>
+        <div style="font-weight:700;">Indian Rupees Two Lakh Fourteen Thousand Two Hundred Seventy Two Only</div>
+      </td>
+      <td class="right" style="width:80px; vertical-align:middle;"><b>E. &amp; O.E.</b></td>
+    </tr>
+  </table>
+
+  <!-- Tax summary -->
+  <table class="grid thin" style="border-top:none;">
+    <thead>
+      <tr>
+        <th rowspan="2" class="center" style="width:35%;">HSN/SAC</th>
+        <th rowspan="2" class="center">Taxable<br/>Value</th>
+        <th colspan="2" class="center">Integrated Tax</th>
+        <th rowspan="2" class="center">Total<br/>Tax Amount</th>
+      </tr>
+      <tr>
+        <th class="center">Rate</th><th class="center">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>4011</td>
+        <td class="right money">1,67,400.00</td>
+        <td class="center">28%</td><td class="right money">46,872.00</td>
+        <td class="right money">46,872.00</td>
+      </tr>
+      <tr>
+        <td class="right"><b>Total</b></td>
+        <td class="right money"><b>1,67,400.00</b></td>
+        <td>&nbsp;</td><td class="right money"><b>46,872.00</b></td>
+        <td class="right money"><b>46,872.00</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="grid" style="border-top:none;">
+    <tr>
+      <td><b>Tax Amount (in words) :</b> Indian Rupees Forty Six Thousand Eight Hundred Seventy Two Only</td>
+    </tr>
+  </table>
+
+  <!-- Bank + Declaration + Signature -->
+  <table class="grid" style="border-top:none;">
+    <tr>
+      <td style="width:60%; vertical-align:top;">
+        <div class="lbl"><b>Company's Bank Details</b></div>
+               <div>A/c Holder's Name&nbsp;: <b>Sri Krishna Tyres</b></div>
+               <div>Bank Name&nbsp;: State Bank of India</div>
+               <div>A/c No.&nbsp;: 1234 5678 9012</div>
+               <div>Branch &amp; IFS Code&nbsp;: Pune Fatima Nagar / SBIN0001234</div>
+               <div>UPI ID&nbsp;: krishna@upi</div>
+        <div style="margin-top:8px;" class="decl">
+          <b>Declaration</b><br />
+          1. We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.<br />
+          2. Goods once sold will not be taken back or exchanged.<br />
+          3. Interest @ 24% p.a. will be charged if payment received after due date.
+        </div>
+      </td>
+      <td style="width:40%; vertical-align:top;">
+        <div class="sig">
+          <div>for <b>Sri Krishna Tyres</b></div>
+          <div class="sig-line">Authorised Signatory · Krishna Iyer</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="footer-note">This is a Computer Generated Invoice</div>
+
+</div>
+</body></html>
