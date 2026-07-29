@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
@@ -15,9 +15,10 @@ import { EmptyState } from "@/src/components/EmptyState";
 import { CATEGORY_MAP, type VehicleCategoryId, type Tyre } from "@/src/constants/inventory";
 import { deleteTyre, listTyres } from "@/src/firebase/inventory";
 import { usePermissions } from "@/src/hooks/usePermissions";
+import { getAppSettings } from "@/src/utils/settings";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
-const LOW_STOCK_THRESHOLD = 3;
+const LOW_STOCK_FALLBACK = 3;
 
 export default function CategoryTyres() {
   const { category } = useLocalSearchParams<{ category: VehicleCategoryId }>();
@@ -26,15 +27,30 @@ export default function CategoryTyres() {
   const perms = usePermissions();
   const [items, setItems] = useState<Tyre[]>([]);
   const [q, setQ] = useState("");
+  const [lowStockDefault, setLowStockDefault] = useState<number>(LOW_STOCK_FALLBACK);
 
   const load = useCallback(async () => {
     if (!category) return;
-    setItems(await listTyres(category));
+    try {
+      const list = await listTyres(category);
+      setItems(list);
+    } catch (e) {
+      console.warn("[inventory/category] listTyres failed", e);
+      setItems([]);
+    }
   }, [category]);
 
+  // Load owner-configured low-stock threshold once (falls back to 3).
   useEffect(() => {
-    load();
-  }, [load]);
+    (async () => {
+      try {
+        const cfg = await getAppSettings();
+        setLowStockDefault(cfg.lowStockThreshold || LOW_STOCK_FALLBACK);
+      } catch {
+        setLowStockDefault(LOW_STOCK_FALLBACK);
+      }
+    })();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -107,26 +123,45 @@ export default function CategoryTyres() {
           contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl }}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
           renderItem={({ item }) => {
-            const low = (item.currentStock ?? 0) <= LOW_STOCK_THRESHOLD;
+            const perItemMin = item.minStockAlert ?? lowStockDefault;
+            const low = (item.currentStock ?? 0) <= perItemMin;
+            const patternLabel = item.pattern && item.pattern !== "-" ? item.pattern : item.model;
             return (
               <View style={styles.row} testID={`tyre-${item.id}`}>
                 <View style={styles.rowIcon}>
                   <MaterialCommunityIcons name="tire" size={24} color={colors.brandPrimary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.rowTitle}>{item.brand} · {item.model}</Text>
-                  <Text style={styles.rowSub}>
-                    {item.size} · {item.tubeType} · {item.construction} · {item.plyRating}PR
+                  <View style={styles.titleRow}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {item.brand}
+                      {item.model && item.model !== "-" ? ` · ${item.model}` : ""}
+                    </Text>
+                    {low ? (
+                      <View style={styles.lowBadge} testID={`low-${item.id}`}>
+                        <Text style={styles.lowBadgeText}>LOW</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowSub} numberOfLines={1}>
+                    {item.size} · {patternLabel} · {item.tubeType}
                   </Text>
-                  <Text style={styles.rowMeta}>
-                    ₹{item.sellingPrice.toLocaleString("en-IN")} · Rack {item.rackNumber}
-                  </Text>
+                  {perms.canViewProfit ? (
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      Buy ₹{(item.purchasePrice ?? 0).toLocaleString("en-IN")} · Sell ₹
+                      {(item.sellingPrice ?? 0).toLocaleString("en-IN")} · Rack {item.rackNumber || "—"}
+                    </Text>
+                  ) : (
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      ₹{(item.sellingPrice ?? 0).toLocaleString("en-IN")} · Rack {item.rackNumber || "—"}
+                    </Text>
+                  )}
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
                   <Text style={[styles.stock, low && { color: colors.error }]}>
-                    {item.currentStock}
+                    {item.currentStock ?? 0}
                   </Text>
-                  <Text style={styles.stockLabel}>in stock</Text>
+                  <Text style={styles.stockLabel}>Qty</Text>
                   <View style={{ flexDirection: "row", marginTop: spacing.xs }}>
                     {perms.canEditPrices ? (
                       <TouchableOpacity
@@ -214,7 +249,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: spacing.md,
   },
-  rowTitle: { fontSize: fontSize.base, fontWeight: "700", color: colors.onSurface },
+  rowTitle: { fontSize: fontSize.base, fontWeight: "700", color: colors.onSurface, flexShrink: 1 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  lowBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: "#FFDAD6",
+  },
+  lowBadgeText: { color: colors.error, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
   rowSub: { fontSize: fontSize.xs, color: colors.onSurfaceSecondary, marginTop: 2 },
   rowMeta: { fontSize: fontSize.xs, color: colors.muted, marginTop: 2 },
   stock: { fontSize: fontSize.lg, fontWeight: "800", color: colors.brandPrimary },

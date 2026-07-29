@@ -157,6 +157,8 @@ export async function incrementTyreStock(params: {
     purchasePrice: params.purchasePrice,
     sellingPrice: 0,
     wholesalePrice: 0,
+    mrp: 0,
+    companyPriceList: 0,
     minStockAlert: 3,
     currentStock: params.qty,
     rackNumber: "-",

@@ -265,16 +265,30 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Settings wired end-to-end (pricing/app-settings apply in Sales & Dashboard)"
-    - "Language key unified between /language and admin/app-settings"
-    - "Broken khata arrow icons fixed"
-    - "Admin hub has 12 tiles incl. Vehicle Master DB"
-    - "Regression: all previously-passing modules still working"
+    - "Fix runtime crash on /inventory/[category] (missing useFocusEffect import)"
+    - "TypeScript strict — zero compile errors"
+    - "Inventory list displays Brand, Size, Pattern, Tube/Tubeless, Qty, Purchase, Selling, Rack, LOW badge"
+    - "Stock math: opening + purchase - sales = current (regression)"
+    - "All 7 categories open without runtime error"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
+  - agent: "main"
+    message: |
+      Fixed the ReferenceError on Dashboard (oldStock/remouldStock now computed). Old/Remould
+      KPI cards are clickable and navigate to /old-tyres and /remould. Added Quick Actions
+      for both new modules. Added Old/Remould breakdown to Reports.
+      Please validate:
+        1. Owner login → Dashboard renders without crashes, all KPI cards visible.
+        2. Tap "Old Tyres" KPI or quick action → routes to /old-tyres with Car/Truck chip row.
+        3. Tap "Remould" KPI or quick action → routes to /remould with Bike/Truck/Tractor.
+        4. Add a tyre from Old Tyres screen using + button; confirm tyreClass=old is preserved.
+        5. Stock In / Stock Out inline buttons work and update Current Stock.
+        6. Reports tab shows Old Tyres and Remould Tyres sections.
+      Credentials: owner@test.com / password  (see /app/memory/test_credentials.md)
+nt_communication:
   - agent: "main"
     message: |
       Fixed the ReferenceError on Dashboard (oldStock/remouldStock now computed). Old/Remould
