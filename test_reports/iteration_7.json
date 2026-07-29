@@ -1,0 +1,57 @@
+{
+  "summary": "Focused verification of 3 items on TyreBook (AsyncStorage fallback auth, owner@test.com). ALL 3 ITEMS PASSED. (1) All 7 inventory categories render without runtime/page errors and show 'No tyres yet' empty state. (2) Tapping category-add-tyre from /inventory/car routes to /inventory/tyre-form?category=car; filling Brand=Apollo, Model=Amazer, Size=175/70 R13, Purchase=2200, Selling=3000, Stock=6, Rack=B2 and tapping tyre-save-btn returns to /inventory/car with the new row visible. (3) Row shows title 'Apollo · Amazer', size '175/70 R13', meta 'Buy ₹2,200 · Sell ₹3,000 · Rack B2', Qty=6, no LOW badge (6>3).",
+  "item_results": {
+    "item_1_categories_render": {
+      "status": "PASS",
+      "evidence": {
+        "bike":    {"url": "/inventory/bike",    "pageerrors": 0, "body": "Bike & Scooty · 0 SKUs · No tyres yet"},
+        "car":     {"url": "/inventory/car",     "pageerrors": 0, "body": "Car · 0 SKUs · No tyres yet"},
+        "auto":    {"url": "/inventory/auto",    "pageerrors": 0, "body": "Auto Rickshaw · 0 SKUs · No tyres yet"},
+        "tractor": {"url": "/inventory/tractor", "pageerrors": 0, "body": "Tractor · 0 SKUs · No tyres yet"},
+        "truck":   {"url": "/inventory/truck",   "pageerrors": 0, "body": "Truck · 0 SKUs · No tyres yet"},
+        "bus":     {"url": "/inventory/bus",     "pageerrors": 0, "body": "Bus · 0 SKUs · No tyres yet"},
+        "otr":     {"url": "/inventory/otr",     "pageerrors": 0, "body": "OTR / Earthmover · 0 SKUs · No tyres yet"}
+      }
+    },
+    "item_2_add_sku": {
+      "status": "PASS",
+      "evidence": {
+        "add_tap_url": "https://…/inventory/tyre-form?category=car",
+        "testIDs_hit": ["category-add-tyre", "tyre-brand", "tyre-model", "tyre-size", "tyre-purchase-price", "tyre-selling-price", "tyre-stock", "tyre-rack", "tyre-save-btn"],
+        "url_after_save": "https://…/inventory/car",
+        "header": "Car · 1 SKUs"
+      }
+    },
+    "item_3_stock_list": {
+      "status": "PASS",
+      "evidence": {
+        "title": "Apollo · Amazer",
+        "sub_line": "175/70 R13 · Amazer · Tubeless",
+        "meta_line": "Buy ₹2,200 · Sell ₹3,000 · Rack B2",
+        "qty": 6,
+        "low_badge": false,
+        "note": "Qty is rendered as '6' with 'Qty' label stacked in the right rail (visually confirmed via screenshot)."
+      }
+    }
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "TouchableOpacity/Pressable", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking; likely from a third-party RN component. Reference: seen in browser console on inventory & form screens."}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional / low priority) Address 'props.pointerEvents is deprecated' warning by migrating pointerEvents from prop to style on the offending component."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only per request)", "frontend": "100% (3/3 items pass)"},
+  "seed_data_creation": "Created one tyre row in AsyncStorage under Car category: Apollo Amazer, 175/70 R13, purchase 2200, sell 3000, stock 6, rack B2.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login flow: /login → role-owner + login-email-input + login-password-input + login-submit-button → /dashboard. Inventory form testIDs: tyre-brand, tyre-model, tyre-size, tyre-purchase-price, tyre-selling-price, tyre-stock, tyre-rack, tyre-save-btn."
+}
