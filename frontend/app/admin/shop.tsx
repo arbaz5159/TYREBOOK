@@ -29,6 +29,19 @@ const EMPTY: ShopSettings = {
   invoicePrefix: "TB",
   nextInvoiceNumber: "0001",
   invoiceFooter: "Thank you for your business!",
+  stateCode: "",
+  stateName: "",
+  hsnCode: "4011",
+  bankName: "",
+  bankAccountNumber: "",
+  bankIFSC: "",
+  bankBranch: "",
+  upiId: "",
+  declaration:
+    "We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.",
+  signatureName: "",
+  kachaPrefix: "CM",
+  nextKachaNumber: "0001",
 };
 
 export default function ShopSettingsScreen() {
@@ -90,13 +103,51 @@ export default function ShopSettingsScreen() {
           <Text style={styles.section}>Invoice Settings</Text>
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
-              <AppTextField label="Invoice Prefix" value={form.invoicePrefix} onChangeText={(v) => update({ invoicePrefix: v })} placeholder="TB" testID="shop-inv-prefix" />
+              <AppTextField label="GST Invoice Prefix" value={form.invoicePrefix} onChangeText={(v) => update({ invoicePrefix: v })} placeholder="TB" testID="shop-inv-prefix" />
             </View>
             <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <AppTextField label="Next Invoice #" value={form.nextInvoiceNumber} onChangeText={(v) => update({ nextInvoiceNumber: v })} placeholder="0001" testID="shop-inv-next" />
+              <AppTextField label="Next GST Invoice #" value={form.nextInvoiceNumber} onChangeText={(v) => update({ nextInvoiceNumber: v })} placeholder="0001" testID="shop-inv-next" />
             </View>
           </View>
+          <View style={{ flexDirection: "row" }}>
+            <View style={{ flex: 1, marginRight: spacing.sm }}>
+              <AppTextField label="Kacha Bill Prefix" value={form.kachaPrefix || ""} onChangeText={(v) => update({ kachaPrefix: v })} placeholder="CM" testID="shop-kacha-prefix" />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <AppTextField label="Next Kacha #" value={form.nextKachaNumber || ""} onChangeText={(v) => update({ nextKachaNumber: v })} placeholder="0001" testID="shop-kacha-next" />
+            </View>
+          </View>
+          <View style={{ flexDirection: "row" }}>
+            <View style={{ flex: 1, marginRight: spacing.sm }}>
+              <AppTextField label="HSN Code" value={form.hsnCode || ""} onChangeText={(v) => update({ hsnCode: v })} placeholder="4011" testID="shop-hsn" />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <AppTextField label="State Code" value={form.stateCode || ""} onChangeText={(v) => update({ stateCode: v.replace(/[^0-9]/g, "").slice(0, 2) })} keyboardType="number-pad" placeholder="27" testID="shop-state-code" />
+            </View>
+          </View>
+          <AppTextField label="State Name" value={form.stateName || ""} onChangeText={(v) => update({ stateName: v })} placeholder="Maharashtra" testID="shop-state-name" />
           <AppTextField label="Invoice Footer" value={form.invoiceFooter} onChangeText={(v) => update({ invoiceFooter: v })} placeholder="Thank you note" multiline testID="shop-inv-footer" />
+          <AppTextField label="Authorised Signatory Name" value={form.signatureName || ""} onChangeText={(v) => update({ signatureName: v })} placeholder="Owner name for signature line" testID="shop-signature" />
+          <AppTextField label="Declaration" value={form.declaration || ""} onChangeText={(v) => update({ declaration: v })} placeholder="Legal declaration on invoice foot" multiline testID="shop-declaration" />
+
+          <Text style={styles.section}>Bank Details (printed on GST invoice)</Text>
+          <AppTextField label="Bank Name" value={form.bankName || ""} onChangeText={(v) => update({ bankName: v })} placeholder="State Bank of India" testID="shop-bank-name" />
+          <View style={{ flexDirection: "row" }}>
+            <View style={{ flex: 1, marginRight: spacing.sm }}>
+              <AppTextField label="Account Number" value={form.bankAccountNumber || ""} onChangeText={(v) => update({ bankAccountNumber: v })} keyboardType="number-pad" testID="shop-bank-account" />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <AppTextField label="IFSC" value={form.bankIFSC || ""} onChangeText={(v) => update({ bankIFSC: v.toUpperCase() })} autoCapitalize="characters" testID="shop-bank-ifsc" />
+            </View>
+          </View>
+          <View style={{ flexDirection: "row" }}>
+            <View style={{ flex: 1, marginRight: spacing.sm }}>
+              <AppTextField label="Branch" value={form.bankBranch || ""} onChangeText={(v) => update({ bankBranch: v })} testID="shop-bank-branch" />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <AppTextField label="UPI ID" value={form.upiId || ""} onChangeText={(v) => update({ upiId: v })} autoCapitalize="none" placeholder="shop@upi" testID="shop-upi" />
+            </View>
+          </View>
 
           {saved ? <Text style={styles.saved}>Saved!</Text> : null}
         </ScrollView>

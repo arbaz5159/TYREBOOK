@@ -138,6 +138,18 @@ export interface Sale {
   linkedTyreId?: string;
   totalValue: number;
   createdAt?: number;
+  // -------- Billing / Invoice metadata (added for full GST + Kacha support) --
+  invoiceKind?: "Tax Invoice" | "Kacha Bill";
+  invoiceNumber?: string;
+  hsnCode?: string;
+  customerGstin?: string;
+  customerAddress?: string;
+  customerStateCode?: string;
+  shopStateCode?: string;
+  isInterstate?: boolean;
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
 }
 
 export interface Customer {

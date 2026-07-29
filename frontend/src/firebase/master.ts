@@ -124,6 +124,20 @@ export interface ShopSettings {
   nextInvoiceNumber: string;
   invoiceFooter: string;
   updatedAt?: number;
+  // -------- Billing extras (used only by invoice / kacha PDFs) --------
+  logoUri?: string; // data-uri or https URL
+  stateCode?: string; // e.g. "27" for MH
+  stateName?: string; // e.g. "Maharashtra"
+  hsnCode?: string; // default HSN — 4011 for tyres
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankIFSC?: string;
+  bankBranch?: string;
+  upiId?: string;
+  declaration?: string; // legal declaration on invoice foot
+  signatureName?: string; // authorised signatory name
+  kachaPrefix?: string; // e.g. "CM"
+  nextKachaNumber?: string; // separate counter for Kacha Bill
 }
 
 const SHOP_KEY = "tyrebook.shopSettings";
@@ -138,6 +152,19 @@ const DEFAULT_SHOP: ShopSettings = {
   invoicePrefix: "TB",
   nextInvoiceNumber: "0001",
   invoiceFooter: "Thank you for your business!",
+  stateCode: "",
+  stateName: "",
+  hsnCode: "4011",
+  bankName: "",
+  bankAccountNumber: "",
+  bankIFSC: "",
+  bankBranch: "",
+  upiId: "",
+  declaration:
+    "We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.",
+  signatureName: "",
+  kachaPrefix: "CM",
+  nextKachaNumber: "0001",
 };
 
 export async function getShopSettings(): Promise<ShopSettings> {
@@ -169,6 +196,34 @@ export async function saveShopSettings(data: ShopSettings): Promise<void> {
     { ...data, updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+// -------- Auto-incrementing invoice / kacha number counters -------------------
+// Reserves the CURRENT `nextInvoiceNumber` (or `nextKachaNumber`) for the caller,
+// then advances the stored counter so the next bill gets a fresh number.
+// Returns the fully formatted number "<PREFIX>-<PADDED_SEQ>".
+
+function padSeq(seq: string, width: number): string {
+  const digits = seq.replace(/[^\d]/g, "") || "1";
+  return digits.padStart(width, "0");
+}
+
+export async function reserveInvoiceNumber(
+  kind: "Tax Invoice" | "Kacha Bill",
+): Promise<{ number: string; shop: ShopSettings }> {
+  const shop = await getShopSettings();
+  const isKacha = kind === "Kacha Bill";
+  const prefix = (isKacha ? shop.kachaPrefix : shop.invoicePrefix) || (isKacha ? "CM" : "TB");
+  const rawSeq = (isKacha ? shop.nextKachaNumber : shop.nextInvoiceNumber) || "0001";
+  const width = Math.max(rawSeq.length, 4);
+  const currentSeq = padSeq(rawSeq, width);
+  const number = `${prefix}-${currentSeq}`;
+  const nextSeq = padSeq(String((parseInt(currentSeq, 10) || 0) + 1), width);
+  const nextShop: ShopSettings = isKacha
+    ? { ...shop, nextKachaNumber: nextSeq }
+    : { ...shop, nextInvoiceNumber: nextSeq };
+  await saveShopSettings(nextShop);
+  return { number, shop: nextShop };
 }
 
 // -------- Backup / Restore (JSON dump of all local + Firestore data) --------

@@ -26,22 +26,18 @@ import {
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
 import { createSale } from "@/src/firebase/sales";
-import { getShopSettings } from "@/src/firebase/master";
+import { getShopSettings, reserveInvoiceNumber } from "@/src/firebase/master";
 import { addKhataEntry } from "@/src/firebase/khata";
-import { generateAndShareInvoice, type InvoiceType } from "@/src/utils/invoicePdf";
+import { generateAndShareInvoice } from "@/src/utils/invoicePdf";
 import { getPricingConfig, type PricingConfig } from "@/src/utils/settings";
 import { usePermissions } from "@/src/hooks/usePermissions";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
-const INVOICE_TYPES: InvoiceType[] = [
-  "Tax Invoice",
-  "GST Invoice",
-  "Non-GST Invoice",
-  "Estimate",
-  "Quotation",
-  "Delivery Challan",
-  "Purchase Order",
+type BillKind = "Tax Invoice" | "Kacha Bill";
+const BILL_KINDS: { value: BillKind; label: string; hint: string }[] = [
+  { value: "Tax Invoice", label: "GST Invoice", hint: "With GST · HSN · CGST/SGST/IGST" },
+  { value: "Kacha Bill", label: "Kacha Bill", hint: "Cash Memo · No GST" },
 ];
 
 export default function NewSale() {
@@ -50,6 +46,9 @@ export default function NewSale() {
   const [customerName, setCustomer] = useState("");
   const [mobileNumber, setMobile] = useState("");
   const [vehicleNumber, setVehicle] = useState("");
+  const [customerGstin, setCustomerGstin] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerStateCode, setCustomerStateCode] = useState("");
   const [categoryId, setCategoryId] = useState<VehicleCategoryId>("car");
   const [tyreClass, setTyreClass] = useState<TyreClass>("new");
   const [customerType, setCustomerType] = useState<CustomerType>("Retail");
@@ -62,11 +61,12 @@ export default function NewSale() {
   const [discountPercent, setDiscountPercent] = useState("");
   const [gstPercent, setGst] = useState<number>(18);
   const [paymentMode, setPayment] = useState<PaymentMode>("Cash");
-  const [invoiceType, setInvoiceType] = useState<InvoiceType>("Tax Invoice");
+  const [billKind, setBillKind] = useState<BillKind>("Tax Invoice");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const [pricingCfg, setPricingCfg] = useState<PricingConfig | null>(null);
+  const isKacha = billKind === "Kacha Bill";
 
   // Load owner-configured pricing defaults once. Applied when user picks a
   // customer type so the default discount % is pre-filled from admin/pricing.
@@ -79,7 +79,8 @@ export default function NewSale() {
   }, []);
 
   const subtotal = (Number(quantity) || 0) * (Number(sellingPrice) || 0);
-  const gstAmount = (subtotal * gstPercent) / 100;
+  const effectiveGstPercent = isKacha ? 0 : gstPercent;
+  const gstAmount = (subtotal * effectiveGstPercent) / 100;
   const total = subtotal + gstAmount;
 
   // Discount math (per unit): if user typed priceList and discount% we compute
@@ -105,6 +106,22 @@ export default function NewSale() {
     setSaving(true);
     try {
       const saleDate = Date.now();
+      const shopSnapshot = await getShopSettings();
+      const shopStateCode = (shopSnapshot.stateCode || "").trim();
+      const custStateCode = customerStateCode.trim() || shopStateCode;
+      const interstate = Boolean(shopStateCode && custStateCode && custStateCode !== shopStateCode);
+      const hsn = shopSnapshot.hsnCode || "4011";
+      const gstForSale = isKacha ? 0 : gstPercent;
+      const taxable = +(Number(quantity) * effectiveSellingPrice).toFixed(2);
+      const totalGst = +((taxable * gstForSale) / 100).toFixed(2);
+      const cgstAmount = interstate ? 0 : +(totalGst / 2).toFixed(2);
+      const sgstAmount = interstate ? 0 : +(totalGst - cgstAmount).toFixed(2);
+      const igstAmount = interstate ? totalGst : 0;
+
+      // Reserve the next number BEFORE writing so the persisted sale keeps a
+      // stable, human-readable reference (also increments the shop counter).
+      const { number: invoiceNumber } = await reserveInvoiceNumber(billKind);
+
       const salePayload = {
         customerName: customerName.trim(),
         mobileNumber: mobileNumber.trim(),
@@ -121,16 +138,26 @@ export default function NewSale() {
         discountPercent: discNum,
         discountAmount,
         sellingPrice: effectiveSellingPrice,
-        gstPercent,
+        gstPercent: gstForSale,
         paymentMode,
+        // Billing metadata snapshot ------------------------------------------
+        invoiceKind: billKind,
+        invoiceNumber,
+        hsnCode: hsn,
+        customerGstin: customerGstin.trim().toUpperCase() || undefined,
+        customerAddress: customerAddress.trim() || undefined,
+        customerStateCode: custStateCode || undefined,
+        shopStateCode: shopStateCode || undefined,
+        isInterstate: interstate,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
       };
       const res = await createSale(salePayload);
 
-      const grandTotal = total;
-      // Post-write side effects: KhataBook entry + invoice # + PDF share.
-      const shop = await getShopSettings();
-      const invoiceNumber = `${shop.invoicePrefix || "TB"}-${shop.nextInvoiceNumber || "0001"}`;
+      const grandTotal = +(taxable + totalGst).toFixed(2);
 
+      // Post-write side effects: KhataBook entry + PDF share.
       if (paymentMode === "Credit" && mobileNumber.trim()) {
         await addKhataEntry({
           customerId: mobileNumber.trim(),
@@ -145,10 +172,10 @@ export default function NewSale() {
 
       // Fire and forget the PDF share so the flow doesn't block on user.
       generateAndShareInvoice({
-        invoiceType,
+        invoiceType: billKind,
         invoiceNumber,
         sale: { ...salePayload, id: res.id, totalValue: grandTotal, createdAt: saleDate },
-        shop,
+        shop: shopSnapshot,
       }).catch(() => {});
 
       if (res.warning) {
@@ -176,6 +203,17 @@ export default function NewSale() {
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>Bill Type</Text>
+          <ChipRow
+            options={BILL_KINDS.map((b) => ({ value: b.value, label: b.label }))}
+            value={billKind}
+            onChange={(v) => setBillKind(v)}
+            testIDPrefix="sale-billkind"
+          />
+          <Text style={styles.helper}>
+            {BILL_KINDS.find((b) => b.value === billKind)?.hint}
+          </Text>
+
           <AppTextField label="Customer Name" value={customerName} onChangeText={setCustomer} placeholder="e.g. Ramesh Kumar" testID="sale-customer" />
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
@@ -185,6 +223,35 @@ export default function NewSale() {
               <AppTextField label="Vehicle Number" value={vehicleNumber} onChangeText={setVehicle} autoCapitalize="characters" placeholder="MH12AB1234" testID="sale-vehicle" />
             </View>
           </View>
+
+          {!isKacha ? (
+            <>
+              <AppTextField
+                label="Customer GSTIN (optional)"
+                value={customerGstin}
+                onChangeText={(v) => setCustomerGstin(v.toUpperCase())}
+                autoCapitalize="characters"
+                placeholder="15 char GSTIN"
+                testID="sale-customer-gstin"
+              />
+              <AppTextField
+                label="Customer Address (optional)"
+                value={customerAddress}
+                onChangeText={setCustomerAddress}
+                placeholder="Street, City, State"
+                multiline
+                testID="sale-customer-address"
+              />
+              <AppTextField
+                label="Customer State Code (optional)"
+                value={customerStateCode}
+                onChangeText={(v) => setCustomerStateCode(v.replace(/[^0-9]/g, "").slice(0, 2))}
+                keyboardType="number-pad"
+                placeholder="e.g. 27 (MH) — leave blank if same state"
+                testID="sale-customer-state"
+              />
+            </>
+          ) : null}
 
           <Text style={styles.label}>Customer Type</Text>
           <ChipRow
@@ -280,20 +347,16 @@ export default function NewSale() {
             ) : null}
 
             <Text style={styles.label}>GST %</Text>
-            <ChipRow
-              options={GST_OPTIONS.map((n) => ({ value: n, label: `${n}%` }))}
-              value={gstPercent}
-              onChange={setGst}
-              testIDPrefix="sale-gst"
-            />
-
-            <Text style={styles.label}>Invoice Type</Text>
-            <ChipRow
-              options={INVOICE_TYPES.map((t) => ({ value: t, label: t }))}
-              value={invoiceType}
-              onChange={setInvoiceType}
-              testIDPrefix="sale-invtype"
-            />
+            {isKacha ? (
+              <Text style={styles.helper}>Kacha Bill does not charge GST.</Text>
+            ) : (
+              <ChipRow
+                options={GST_OPTIONS.map((n) => ({ value: n, label: `${n}%` }))}
+                value={gstPercent}
+                onChange={setGst}
+                testIDPrefix="sale-gst"
+              />
+            )}
 
             <Text style={styles.label}>Payment Mode</Text>
             <ChipRow
@@ -306,7 +369,9 @@ export default function NewSale() {
 
           <View style={styles.summary}>
             <SummaryRow label="Subtotal" value={`₹${subtotal.toFixed(2)}`} />
-            <SummaryRow label={`GST (${gstPercent}%)`} value={`₹${gstAmount.toFixed(2)}`} />
+            {!isKacha ? (
+              <SummaryRow label={`GST (${gstPercent}%)`} value={`₹${gstAmount.toFixed(2)}`} />
+            ) : null}
             <SummaryRow label="Total" value={`₹${total.toFixed(2)}`} bold />
           </View>
 
@@ -362,6 +427,12 @@ const styles = StyleSheet.create({
     color: colors.onSurfaceSecondary,
     marginBottom: spacing.xs,
     marginTop: spacing.md,
+  },
+  helper: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
+    marginTop: 4,
+    marginBottom: spacing.xs,
   },
   summary: {
     marginTop: spacing.lg,
