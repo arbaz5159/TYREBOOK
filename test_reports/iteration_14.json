@@ -1,0 +1,80 @@
+{
+  "summary": "Firebase Email/Password provider is now ENABLED — signUp and signInWithPassword both return HTTP 200. However, real end-to-end persistence is only PARTIAL. Direct REST probes of Firestore prove: (a) 'tyres' collection contains the MRF FBV1-Test doc `HaCnlPSQMO5So8Im43pU` (20-char Firestore id) → tyre write succeeded; (b) 'settings/shop' doc exists → shop save succeeded and persists after page.reload(); (c) 'users' collection is EMPTY → AuthContext is NOT upserting user profile on signup; (d) 'sales' collection is EMPTY → sale save silently fails; (e) 'customers' collection is EMPTY → customer upsert silently fails. Root cause of the UI-side failures: the tyres list query `where('categoryId','==',x) + orderBy('brand')` requires a Firestore composite index that has not been deployed; console shows 'FirebaseError: The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/tyrebook-dea3f/firestore/indexes?create_composite=...'. Because the sale-save code path (sales/new → save & reduce stock) reads the tyres list to locate the SKU for stock decrement, that read throws first and the sale + customer upsert never get committed — so writes for those two never happen. No PERMISSION_DENIED / rules issues; Firestore rules are permissive.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Firebase Auth ↔ AuthContext user profile upsert",
+        "issue": "After successful accounts:signUp (HTTP 200), the app does NOT create a corresponding document in the Firestore 'users' collection. REST probe on /projects/tyrebook-dea3f/databases/(default)/documents/users returned `{}` (empty). Expect AuthContext (src/firebase/auth.ts / src/context/AuthContext.tsx or equivalent) to setDoc(users/{uid}) with role, displayName, email, createdAt on signUp/first-login. Currently missing — role/permissions are stored only in localStorage under tyrebook.role, which does not survive cross-device access.",
+        "affected_testIDs": ["signup-submit-button", "login-submit-button"]
+      },
+      {
+        "flow": "Inventory list read (/inventory/[category])",
+        "issue": "listTyres in src/firebase/inventory.ts:41-59 runs `query(col, where('categoryId','==', x), orderBy('brand'))` which requires a composite index. The console prints: 'FirebaseError: The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/tyrebook-dea3f/firestore/indexes?create_composite=Ckxwcm9qZWN0cy90eXJlYm9vay1kZWEzZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvdHlyZXMvaW5kZXhlcy9fEAEaDgoKY2F0ZWdvcnlJZBABGgkKBWJyYW5kEAEaDAoIX19uYW1lX18QAQ'. The error is swallowed by `console.warn` + `setItems([])` in app/inventory/[category].tsx:38, so the user sees a permanently empty list even after a successful write. Fix options: (a) deploy the composite index via Firebase Console link or `firebase deploy --only firestore:indexes` with a firestore.indexes.json; (b) drop the orderBy and sort client-side; (c) surface the error to the UI instead of silent empty state.",
+        "affected_testIDs": ["category-add-tyre", "tyre-<id>"]
+      },
+      {
+        "flow": "Sale save (/sales/new)",
+        "issue": "After tapping sale-save-btn with a valid payload (GST, MRF FBV1-Test, qty 1, ₹1500, 18% GST, Cash) the URL stays on /sales/new (no redirect to /(tabs)/billing) and REST probe of 'sales' collection returns `{}` — no doc was created. The 2 Write/channel POSTs observed on the wire are Firebase's persistent RPC channel setup, not actual doc commits. RCA: the create-sale flow first calls listTyres()/getStock() to reduce inventory; that read throws the composite-index error above, so addDoc(sales/*) never fires. Same cascade breaks 'customers' upsert. Fix requires the tyres index (see above) OR reworking sale save to not depend on the failing query.",
+        "affected_testIDs": ["sale-save-btn"]
+      },
+      {
+        "flow": "Sale save error visibility",
+        "issue": "Sale save failure is completely silent — no toast, no red inline error, no console.error. User believes the sale was recorded. Recommend surfacing thrown errors from sales.ts / stock.ts to the sale-save-btn handler.",
+        "affected_testIDs": ["sale-save-btn"]
+      },
+      {
+        "flow": "Cross-session inventory read",
+        "issue": "Q8: after clearing tyrebook.* localStorage and reloading, Firebase Auth persistence (IndexedDB firebaseLocalStorageDb) keeps the user signed in — /login is skipped. Navigating to /inventory/car still shows 'No tyres yet' although REST proves the MRF FBV1-Test doc lives in Firestore. Same root cause: missing composite index blocks the read."
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_14.json"],
+  "action_items": [
+    "USER/DEV ACTION (highest priority): Deploy the missing Firestore composite index for the tyres collection. Fastest path — open the URL from the console warning: https://console.firebase.google.com/v1/r/project/tyrebook-dea3f/firestore/indexes?create_composite=Ckxwcm9qZWN0cy90eXJlYm9vay1kZWEzZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvdHlyZXMvaW5kZXhlcy9fEAEaDgoKY2F0ZWdvcnlJZBABGgkKBWJyYW5kEAEaDAoIX19uYW1lX18QAQ and click 'Create index'. Fields: categoryId ASC, brand ASC. Or add /app/frontend/firestore.indexes.json with the same composite and deploy via Firebase CLI. This single change should unblock Q4/Q5/Q6/Q8.",
+    "MAIN AGENT (E1) code change: In src/firebase/inventory.ts, drop the composite `orderBy('brand')` and sort client-side (list.sort((a,b)=>a.brand.localeCompare(b.brand))) so no index is needed. This is a one-line change and makes the app resilient to missing indexes. Also do the same review in src/firebase/sales.ts / customers / khata / purchase in case similar where+orderBy queries exist there.",
+    "MAIN AGENT (E1): AuthContext must upsert users/{uid} on signUp. Confirm src/context/AuthContext.tsx (or wherever signUp is consumed) calls setDoc(users/<uid>, { role, displayName, email, createdAt: serverTimestamp() }, { merge: true }). Currently the 'users' Firestore collection stays empty after signup.",
+    "MAIN AGENT (E1): Bubble up sales.ts / stock.ts errors to the /sales/new UI. Right now a save-failure produces no toast and the user cannot tell the sale was rejected.",
+    "TESTING AGENT (next iteration): After the composite index is created, re-run V4–V8 — expect a tyre row in /inventory/car (testID `tyre-HaCnl…`), a sale doc in the 'sales' collection, a 'Firebase Test' row in /customers, and cross-session persistence to hold after localStorage wipe."
+  ],
+  "critical_code_review_comments": [
+    "src/firebase/inventory.ts:53-59 — `query(col, where('categoryId','==',x), orderBy('brand'))` requires a composite index. Either declare the index (firestore.indexes.json) or drop the orderBy and sort in JS.",
+    "app/inventory/[category].tsx:34-40 — catches the Firestore index error with `console.warn` + `setItems([])`; the user has no way to know reads are broken. Please propagate as an inline error banner.",
+    "AuthContext / src/firebase/auth.ts:78+ (signUp) — the flow does not appear to write a users/{uid} document; the 'users' collection is empty after two successful signup attempts. This means role (owner vs staff) is not portable across devices.",
+    "src/firebase/sales.ts (create sale) — the sale-save path clearly depends on the tyres read (to reduce stock). Any exception from that read aborts the entire transaction with no user feedback. Guard the stock lookup or catch + still create the sale."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "Auth 100% (Q1,Q3). Writes: Shop ✓ Tyre ✓, User profile ✗, Sale ✗, Customer ✗. Reads: Shop ✓, Tyre ✗ (index), Sale ✗, Customer ✗."},
+  "seed_data_creation": "Firebase Auth: created user owner@test.com (UID assigned by Firebase). Firestore docs left in place as proof: tyres/HaCnlPSQMO5So8Im43pU (MRF FBV1-Test) and settings/shop (Shop Name = 'Firebase Verified Shop').",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The blocker is the Firestore composite index on tyres (categoryId ASC, brand ASC). Either create it via the console link in the RCA, or ship a code fix that drops orderBy from listTyres. Once done, re-run: /inventory/car should show `tyre-HaCnlPSQMO5So8Im43pU` (already in DB); a new /sales/new save should populate the 'sales' and 'customers' collections; /customers should list 'Firebase Test'. Also validate that AuthContext writes users/{uid} on signup (a fresh signup, e.g. 'staff2@test.com', should create a doc under 'users' — currently it does not).",
+  "rca_of_issue": "REPRODUCTION: (1) Login as owner@test.com / Password@123 — signInWithPassword returns 200 ✓. (2) Go /inventory/car → tap +, fill Brand=MRF, Model=FBV1-Test, Size=185/65 R15, Purchase=1000, Selling=1500, Stock=5, Rack=A1, Save. Network shows 3× POST to firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel. (3) Return to /inventory/car → screen shows 'No tyres yet'. (4) Console: 'FirebaseError: The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/tyrebook-dea3f/firestore/indexes?create_composite=Ckxwcm9qZWN0cy90eXJlYm9vay1kZWEzZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvdHlyZXMvaW5kZXhlcy9fEAEaDgoKY2F0ZWdvcnlJZBABGgkKBWJyYW5kEAEaDAoIX19uYW1lX18QAQ'. (5) REST GET https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/tyres?key=... → HTTP 200 with document id `HaCnlPSQMO5So8Im43pU` (Firestore-style 20-char alphanumeric — NOT a `local-` id), proving the WRITE succeeded but the READ query is failing. (6) /sales/new save + /admin/shop save: same Write/channel POSTs, but REST GET sales and customers return `{}`. REST GET settings returns the shop doc. So the sale/customer writes silently roll back — root cause is that sale-save internally calls listTyres to reduce stock, throwing the same composite-index error before addDoc(sales/*) runs. MITIGATION: create the composite index (link above) OR drop `orderBy('brand')` from listTyres and sort client-side.",
+  "evidence": {
+    "Q1_signup_signin_200": "YES — POST accounts:signUp -> 200 (first script) and POST accounts:signInWithPassword -> 200 (login script). accounts:lookup + accounts:update also 200.",
+    "Q2_user_profile_written_to_firestore": "NO — REST GET https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/users?key=... returns `{}` after 2 successful signups. AuthContext is not upserting users/{uid}.",
+    "Q3_relogin_200": "YES — accounts:signInWithPassword returned 200 on re-login.",
+    "Q4_inventory": "PARTIAL — WRITE observed (POST Write/channel × 3) AND doc really exists in Firestore: id `HaCnlPSQMO5So8Im43pU` (20 chars, alphanumeric, not `local-…`). READ fails because of missing composite index → UI stays empty ('No tyres yet').",
+    "Q5_sales": "NO — Write/channel POSTs observed on the wire but the 'sales' collection is `{}` per REST probe. Save did NOT redirect to /(tabs)/billing; URL stayed at /sales/new. Root cause: sale-save internally reads tyres and throws the index error.",
+    "Q6_customer": "NO — 'customers' collection is `{}` per REST probe. /customers screen shows 'No customers yet'. Same chained failure as Q5.",
+    "Q7_settings": "YES — 3 Write/channel POSTs during Save Changes; REST GET settings/shop shows the full doc; page.reload() shows 'Firebase Verified Shop' in the shop-name field. This flow uses setDoc(settings/shop) which needs no index — that's why it works and the others don't.",
+    "Q8_cross_session_persistence": "PARTIAL — data IS in Firestore (tyre doc `HaCnlPSQMO5So8Im43pU`) but /inventory/car still shows 'No tyres yet' after localStorage wipe + auto-relogin, again due to the missing composite index. Also observed: clearing `tyrebook.*` from localStorage does NOT log the user out because Firebase persists auth in IndexedDB (firebaseLocalStorageDb) — so re-login step in the flow was skipped by the app.",
+    "Q9_permission_or_auth_errors": "NO PERMISSION_DENIED. NO 'Missing or insufficient permissions'. One repeated FirebaseError: 'The query requires an index' from listTyres.",
+    "first_3_firestore_write_urls_verbatim": [
+      "https://firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel",
+      "https://firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel",
+      "https://firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel"
+    ],
+    "doc_id_prefixes": {
+      "tyre_HaCnl_len20": "HaCnl (full id HaCnlPSQMO5So8Im43pU, 20-char alphanumeric — REAL Firestore id, NOT local-…)",
+      "sale": "N/A — no sale doc was actually created in Firestore",
+      "customer": "N/A — no customer doc was actually created in Firestore",
+      "settings_shop": "shop (document id is the literal string 'shop', per setDoc(settings/shop) — expected)"
+    },
+    "auth_failures": "None on this run. All identitytoolkit responses were HTTP 200."
+  },
+  "verdict": "PARTIAL — Firebase Auth is fully active and Firestore accepts writes (tyre and shop docs are truly persisted in Firestore, verified by REST probe). BUT: (a) missing composite index on `tyres (categoryId,brand)` breaks all inventory reads and cascades into sale/customer save failures; (b) AuthContext does not upsert users/{uid} on signup. Fix the composite index (link in RCA) + add users write, then Firebase will be FULLY ACTIVE."
+}
