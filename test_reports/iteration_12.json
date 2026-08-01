@@ -1,0 +1,61 @@
+{
+  "summary": "READ-ONLY Firebase integration verification for TyreBook. Logged in as owner@test.com / password, created a tyre (MRF/Test/185/65 R15/Buy 1000/Sell 1500/Stock 1/Rack A1) via /inventory/car -> /inventory/tyre-form?category=car. Collected localStorage keys, IndexedDB databases, network requests, and console messages. CONCLUSION: AsyncStorage fallback active — Firebase is NOT active. No fixes applied.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Firebase / Firestore",
+        "issue": "Firebase is not active at runtime. Data is being persisted to the browser's localStorage under the key `tyrebook.tyres` (AsyncStorage fallback on web). Auth is also local — `tyrebook.localUser` stores {uid:'local-owner-...', role:'owner'}. All 6 EXPO_PUBLIC_FIREBASE_* env vars are empty, so isFirebaseConfigured() returns false and getDb() returns null; every data module takes the AsyncStorage branch.",
+        "affected_testIDs": ["category-add-tyre", "tyre-brand", "tyre-model", "tyre-size", "tyre-purchase-price", "tyre-selling-price", "tyre-stock", "tyre-rack"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Appears on both /login and /inventory/tyre-form. Non-blocking but should be migrated. Reference: any component still passing pointerEvents as a prop."}
+    ]
+  },
+  "verification_qna": {
+    "Q1_localStorage_tyrebook_tyres": {
+      "answer": "YES",
+      "evidence": "localStorage key 'tyrebook.tyres' present. Value contains the newly-created row: [{\"categoryId\":\"car\",\"tyreClass\":\"new\",\"brand\":\"MRF\",\"model\":\"Test\",\"size\":\"185/65 R15\",\"purchasePrice\":1000,\"sellingPrice\":1500,\"currentStock\":1,\"rackNumber\":\"A1\",\"id\":\"local-1785583579340-15sw\",\"createdAt\":1785583579324,...}]. All localStorage keys after save: ['tyrebook.localUser','tyrebook.tyres']."
+    },
+    "Q2_indexeddb_firestore": {
+      "answer": "NO",
+      "evidence": "indexedDB.databases() returned an empty array []. No 'firestore/*', 'firebaseLocalStorageDb', or any Firebase-related IndexedDB database exists."
+    },
+    "Q3_firebase_network_requests": {
+      "answer": "NO",
+      "evidence": "Zero requests observed to firebase*, firestore.googleapis.com, googleapis.com/identitytoolkit, or firebaseio.com during login, form open, and save (monitored via page.on('request'))."
+    },
+    "Q4_firebase_console_messages": {
+      "answer": "NO",
+      "evidence": "Zero console messages containing 'firebase', 'Firestore', or 'auth/'. Only 6 console messages total across the full flow: React DevTools info (x2), Expo `Running application` logs (x2), and a `props.pointerEvents is deprecated` warning (x2)."
+    },
+    "conclusion": "AsyncStorage fallback active. Firebase is NOT active."
+  },
+  "additional_evidence": {
+    "post_login_localstorage": "tyrebook.localUser = {\"uid\":\"local-owner-1785583568885\",\"email\":\"owner@test.com\",\"displayName\":\"owner\",\"role\":\"owner\"}  (uid prefix 'local-' confirms local auth fallback, not Firebase Auth)",
+    "post_save_localstorage_keys": ["tyrebook.localUser", "tyrebook.tyres"],
+    "indexeddb_databases": [],
+    "firebase_network_requests_count": 0,
+    "firebase_console_messages_count": 0,
+    "tyre_id_format": "local-1785583579340-15sw (client-generated 'local-' prefix — not a Firestore document ID)",
+    "ui_confirms_row": "After save, /inventory/car shows '1 SKUs' with the 'MRF · Test' row visible."
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Firebase integration is confirmed INACTIVE at runtime. Data (tyres, users) is stored in browser localStorage via the AsyncStorage fallback. To activate Firebase, populate the 6 EXPO_PUBLIC_FIREBASE_* variables in /app/frontend/.env with a valid Firebase Web App config and restart Expo (supervisorctl restart expo). No google-services.json is present (not required for the web build; only for native builds).",
+    "Optional cleanup: migrate any remaining `pointerEvents={...}` props to `style={{ pointerEvents: ... }}` to silence the deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "src/firebase/config.ts isFirebaseConfigured() correctly guards on apiKey && projectId && appId; with empty env vars the guard returns false and getDb() returns null — this is why every data module (inventory/sales/khata/master/purchase/stock/users/vehicles) falls through to AsyncStorage. Behaviour is as designed given the current env configuration."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not tested per request)", "frontend": "100% (verification-only, all evidence collected)"},
+  "seed_data_creation": "Created one tyre via UI as required by the task (MRF/Test/185/65 R15, Buy 1000, Sell 1500, Stock 1, Rack A1). Persisted only in browser localStorage under `tyrebook.tyres`.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "TyreBook auth login button text is 'Sign in' (not 'Login'). Add-tyre FAB testID is `category-add-tyre`. Tyre form field testIDs: tyre-brand, tyre-model, tyre-pattern, tyre-size, tyre-compat, tyre-ply, tyre-load-index, tyre-speed-rating, tyre-purchase-price, tyre-mrp, tyre-company-price, tyre-selling-price, tyre-min-alert, tyre-stock, tyre-rack. Submit button text is 'Save Tyre'. When EXPO_PUBLIC_FIREBASE_* env vars are empty, the app persists to browser localStorage under `tyrebook.*` keys (localUser, tyres, etc.).",
+  "rca_of_issue": "Firebase is inactive because the 6 EXPO_PUBLIC_FIREBASE_* variables in /app/frontend/.env are empty strings. src/firebase/config.ts::isFirebaseConfigured() requires apiKey && projectId && appId — all three are falsy — so initializeApp() is skipped, getDb() returns null, and every data module branches into the AsyncStorage fallback. On the web build AsyncStorage maps to window.localStorage, which is why keys such as `tyrebook.tyres` and `tyrebook.localUser` appear in Application → Local Storage. Fix: populate the Firebase Web App config values in frontend/.env and restart Expo."
+}
