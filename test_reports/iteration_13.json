@@ -1,0 +1,58 @@
+{
+  "summary": "Read-only Firebase verification. Firebase JS SDK IS initialized and Firestore IS reachable from the browser (REST probe on projects/tyrebook-dea3f/databases/(default)/documents/tyres returned HTTP 200). However, Firebase Authentication Email/Password provider is NOT enabled in the Firebase Console for project tyrebook-dea3f, so both signIn and signUp calls to identitytoolkit.googleapis.com return HTTP 400 with 'Firebase: Error (auth/configuration-not-found)'. Because AuthContext relies on Firebase auth (no local fallback when Firebase is configured), the user cannot get past the login screen; therefore Inventory / Sales / Customer / Settings save flows (V3-V6) COULD NOT be exercised via the UI. Verdict: PARTIAL — Firebase project & Firestore live, but Auth provider must be enabled in Firebase Console before end-to-end write tests can be run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Firebase Auth signIn/signUp",
+        "issue": "identitytoolkit.googleapis.com/v1/accounts:signInWithPassword and :signUp both return HTTP 400 with 'Firebase: Error (auth/configuration-not-found)'. Email/Password sign-in method is not enabled in Firebase Console for project tyrebook-dea3f. Blocks login for owner@test.com and any new signup. Consequence: no authenticated screen can be reached, no Firestore Write from the UI can be verified.",
+        "affected_testIDs": ["login-email-input", "login-password-input", "signup-name-input", "signup-email-input", "signup-password-input"]
+      },
+      {
+        "flow": "AuthContext fallback",
+        "issue": "src/firebase/auth.ts signIn/signUp only fall back to local AsyncStorage user when getFirebaseAuth() returns null. Now that Firebase is configured, the fallback path is dead and any Firebase Auth failure (e.g. provider not enabled, wrong password) surfaces as a hard error with no way to get into the app. Consider either (a) documenting that Auth provider must be enabled, or (b) falling back to local user on specific error codes for dev preview."
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_13.json"],
+  "action_items": [
+    "USER ACTION: In Firebase Console for project tyrebook-dea3f, go to Authentication -> Sign-in method -> enable 'Email/Password' provider. This will unblock signIn/signUp and allow AuthContext to load an authenticated session.",
+    "After enabling Email/Password: create the two seed users (owner@test.com / password, staff@test.com / password) via the app Sign up screen (they do not yet exist in Firebase Auth, so the existing password 'password' from the local-mock era won't work for direct sign-in until an account is created).",
+    "Re-run this verification (iteration 14) after seed users exist — then V3-V6 can be validated: expect Firestore Write requests on tyre / sale / customer / settings save, and doc IDs should be 20-char Firestore IDs (not 'local-...').",
+    "Optional: in src/firebase/auth.ts, catch 'auth/configuration-not-found' and fall through to the local user shim so preview environments keep working when the Firebase Auth product isn't fully enabled yet."
+  ],
+  "critical_code_review_comments": [
+    "src/firebase/config.ts:21-27 — isFirebaseConfigured() correctly returns true for the current .env; getDb() and getFirebaseAuth() will return real instances. Wiring is correct.",
+    "src/firebase/auth.ts:60-75 — signIn only takes the local-fallback path when auth is null; there is no fallback for Firebase auth errors, which is the current blocker.",
+    "src/firebase/inventory.ts, sales.ts, master.ts, users.ts, khata.ts, stock.ts, purchase.ts, vehicles.ts — all correctly guard on `getDb()` and dispatch to Firestore when configured. Cannot yet observe live writes because UI is auth-locked."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "40% (init+connectivity verified; auth+writes blocked)"},
+  "seed_data_creation": "None. No writes were executed against Firestore (only two read-only REST probes to prove reachability).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Once Email/Password provider is enabled in Firebase Console AND owner/staff accounts are created via /signup, re-run V3-V6 to confirm Firestore Writes on save and doc ID format (20-char, not 'local-'). Focus especially on: (a) tyre-save-btn on /inventory/car -> expect POST to firestore.googleapis.com/.../Write; (b) sale-save-btn on /sales/new -> expect Write + customer upsert Write; (c) /admin/shop Save Changes -> expect Write to settings/shop. Auth failure signature to watch for: 'auth/configuration-not-found' means provider still not enabled.",
+  "rca_of_issue": "Reproduction: (1) open http://localhost:3000, (2) enter any email+password on /login and tap Sign in, or open /signup and try Create account. Observation: red inline text 'Firebase: Error (auth/configuration-not-found).' appears; network shows POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyAOUmDJW570j-5ePoPMIG22LsxZ0A5G9oA -> HTTP 400. IndexedDB shows ['firebase-heartbeat-database','firebaseLocalStorageDb'] confirming Firebase SDK init. Direct REST GET https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/tyres?pageSize=1&key=... -> HTTP 200 {} confirming Firestore DB exists and is reachable. Root cause: In the Firebase Console for project tyrebook-dea3f, the Email/Password sign-in provider under Authentication > Sign-in method has not been turned on. Mitigation: enable that provider, then create the QA users through /signup so subsequent Sign-in calls succeed and the app can render authenticated screens where Firestore write tests (V3-V6) can be executed.",
+  "evidence": {
+    "Q1_firebase_initialized": "YES — indexedDB.databases() returned ['firebase-heartbeat-database','firebaseLocalStorageDb'] on first load after visiting the app.",
+    "Q2_firestore_reachable": "YES — direct fetch to https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/tyres?pageSize=1&key=<apiKey> returned HTTP 200 with body '{}\\n'. Also /_probe returned HTTP 200 '{}\\n'.",
+    "Q3_inventory_writes_to_firestore": "UNVERIFIED — cannot reach /inventory/car; login blocked. Static code review shows src/firebase/inventory.ts:41-60 uses Firestore addDoc/collection when getDb() is non-null, which is the current state, so behaviour is expected to work once auth is fixed.",
+    "Q4_sales_writes_to_firestore": "UNVERIFIED — same blocker. src/firebase/sales.ts imports firestore write APIs and is guarded by getDb(); expected to work after auth fix.",
+    "Q5_customer_writes_to_firestore": "UNVERIFIED — same blocker. Customer upsert lives in src/firebase/sales.ts / users.ts and is Firestore-backed when getDb() non-null.",
+    "Q6_shop_settings_writes_to_firestore": "UNVERIFIED — same blocker. src/firebase/master.ts uses setDoc for settings/shop.",
+    "Q7_auth_or_permission_errors": "YES — 'Firebase: Error (auth/configuration-not-found).' shown in UI. Network: 2× HTTP 400 responses from identitytoolkit.googleapis.com (signInWithPassword and signUp). No PERMISSION_DENIED from Firestore observed (Firestore itself responded 200). No CORS errors. No auth/api-key-not-valid error — the API key is accepted.",
+    "first_firestore_urls_observed": [
+      "GET https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/_probe?key=AIzaSyAOUmDJW570j-5ePoPMIG22LsxZ0A5G9oA -> 200",
+      "GET https://firestore.googleapis.com/v1/projects/tyrebook-dea3f/databases/(default)/documents/tyres?pageSize=1&key=AIzaSyAOUmDJW570j-5ePoPMIG22LsxZ0A5G9oA -> 200"
+    ],
+    "identitytoolkit_urls_observed": [
+      "POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyAOUmDJW570j-5ePoPMIG22LsxZ0A5G9oA -> 400 auth/configuration-not-found",
+      "POST https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyAOUmDJW570j-5ePoPMIG22LsxZ0A5G9oA -> 400 auth/configuration-not-found"
+    ],
+    "new_doc_id_prefixes": {"inventory": "N/A (write not attempted)", "sales": "N/A (write not attempted)"}
+  },
+  "verdict": "PARTIAL — Firebase JS SDK initialised and Firestore DB reachable, but Email/Password Auth provider is not enabled in the Firebase Console for tyrebook-dea3f, so the app cannot sign anyone in and Firestore write flows (Inventory/Sales/Customer/Settings) could not be exercised through the UI."
+}
