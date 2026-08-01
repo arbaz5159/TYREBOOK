@@ -592,7 +592,7 @@ function openHtmlForPrintWeb(html: string, title: string): boolean {
       };
     };
     if (!g.window?.open) return false;
-    const win = g.window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
+    const win = g.window.open("", "_blank", "width=900,height=1000");
     if (!win || !win.document) return false;
     // Inject the HTML AND an auto-print trigger once the DOM has settled.
     const doc = win.document as unknown as {
