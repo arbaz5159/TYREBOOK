@@ -10,7 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.tireinventoryapp.k5wo00"
+      "bundleIdentifier": "com.emergent.tireinventoryapp.k5wo00",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan invoices and tyre labels for stock entry",
+        "NSPhotoLibraryUsageDescription": "Attach invoice photos for smart scan",
+        "NSPhotoLibraryAddUsageDescription": "Save generated invoice PDFs to Photos"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +23,14 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.tireinventoryapp.k5wo00"
+      "package": "com.emergent.tireinventoryapp.k5wo00",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -34,6 +46,13 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#006B5F"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach invoice photos for smart scan",
+          "cameraPermission": "Scan invoices and tyre labels for stock entry"
         }
       ]
     ],

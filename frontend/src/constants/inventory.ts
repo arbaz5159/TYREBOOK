@@ -2,12 +2,14 @@
 
 export type VehicleCategoryId =
   | "bike"
-  | "car"
+  | "scooter"
   | "auto"
-  | "tractor"
+  | "car"
+  | "lcv"
   | "truck"
-  | "bus"
-  | "otr";
+  | "tractor"
+  | "otr"
+  | "bus";
 
 export interface VehicleCategory {
   id: VehicleCategoryId;
@@ -17,13 +19,15 @@ export interface VehicleCategory {
 }
 
 export const VEHICLE_CATEGORIES: VehicleCategory[] = [
-  { id: "bike", name: "Bike & Scooty", icon: "motorbike", hint: "2 wheelers" },
-  { id: "car", name: "Car", icon: "car", hint: "Passenger cars & SUVs" },
+  { id: "bike", name: "Bike", icon: "motorbike", hint: "Motorcycles" },
+  { id: "scooter", name: "Scooter", icon: "moped", hint: "Scooters & Scooty" },
   { id: "auto", name: "Auto Rickshaw", icon: "rickshaw", hint: "3 wheelers" },
-  { id: "tractor", name: "Tractor", icon: "tractor", hint: "Agriculture" },
+  { id: "car", name: "Car", icon: "car", hint: "Passenger cars & SUVs" },
+  { id: "lcv", name: "LCV", icon: "truck-cargo-container", hint: "Light commercial vehicle" },
   { id: "truck", name: "Truck", icon: "truck", hint: "Commercial cargo" },
-  { id: "bus", name: "Bus", icon: "bus", hint: "Passenger coaches" },
+  { id: "tractor", name: "Tractor", icon: "tractor", hint: "Agriculture" },
   { id: "otr", name: "OTR / Earthmover", icon: "excavator", hint: "Off the road" },
+  { id: "bus", name: "Bus", icon: "bus", hint: "Passenger coaches" },
 ];
 
 export const CATEGORY_MAP: Record<VehicleCategoryId, VehicleCategory> =

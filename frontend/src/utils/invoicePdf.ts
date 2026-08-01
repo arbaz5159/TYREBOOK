@@ -47,13 +47,15 @@ function fmtDate(ts: number): string {
 
 /* Vehicle category id → readable label. */
 const CATEGORY_LABEL: Record<string, string> = {
-  bike: "Bike & Scooty",
-  car: "Car",
+  bike: "Bike",
+  scooter: "Scooter",
   auto: "Auto Rickshaw",
-  tractor: "Tractor",
+  car: "Car",
+  lcv: "LCV",
   truck: "Truck",
-  bus: "Bus",
+  tractor: "Tractor",
   otr: "OTR / Earthmover",
+  bus: "Bus",
 };
 
 /* Detect if the sale is inter-state by comparing state codes. */

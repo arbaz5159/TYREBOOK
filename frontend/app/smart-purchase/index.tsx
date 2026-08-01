@@ -48,46 +48,64 @@ export default function SmartPurchaseScanner() {
 
   const chooseCamera = async () => {
     setError(null);
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      setError("Camera permission is required to capture invoices.");
-      return;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setError(
+          perm.canAskAgain
+            ? "Camera permission is required to capture invoices."
+            : "Camera permission is blocked. Enable it from device Settings → Apps → TyreBook.",
+        );
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        quality: 0.6,
+        base64: true,
+        // expo-image-picker v17+ uses the string-array API; MediaTypeOptions is
+        // removed and will throw on newer Android builds.
+        mediaTypes: ["images"],
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      if (!asset.base64) {
+        setError("Could not read image.");
+        return;
+      }
+      setBusy("camera");
+      await run(asset.base64, asset.mimeType ?? "image/jpeg", asset.uri);
+    } catch (e: any) {
+      setError("Camera failed: " + (e?.message ?? "unknown error"));
     }
-    const res = await ImagePicker.launchCameraAsync({
-      quality: 0.6,
-      base64: true,
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    });
-    if (res.canceled || !res.assets?.length) return;
-    const asset = res.assets[0];
-    if (!asset.base64) {
-      setError("Could not read image.");
-      return;
-    }
-    setBusy("camera");
-    await run(asset.base64, asset.mimeType ?? "image/jpeg", asset.uri);
   };
 
   const chooseGallery = async () => {
     setError(null);
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      setError("Photo permission is required to upload invoices.");
-      return;
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setError(
+          perm.canAskAgain
+            ? "Photo permission is required to upload invoices."
+            : "Photo permission is blocked. Enable it from device Settings → Apps → TyreBook.",
+        );
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        quality: 0.6,
+        base64: true,
+        mediaTypes: ["images"],
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      if (!asset.base64) {
+        setError("Could not read image.");
+        return;
+      }
+      setBusy("gallery");
+      await run(asset.base64, asset.mimeType ?? "image/jpeg", asset.uri);
+    } catch (e: any) {
+      setError("Gallery failed: " + (e?.message ?? "unknown error"));
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.6,
-      base64: true,
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    });
-    if (res.canceled || !res.assets?.length) return;
-    const asset = res.assets[0];
-    if (!asset.base64) {
-      setError("Could not read image.");
-      return;
-    }
-    setBusy("gallery");
-    await run(asset.base64, asset.mimeType ?? "image/jpeg", asset.uri);
   };
 
   const choosePdf = async () => {

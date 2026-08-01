@@ -265,11 +265,11 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Fix runtime crash on /inventory/[category] (missing useFocusEffect import)"
-    - "TypeScript strict — zero compile errors"
-    - "Inventory list displays Brand, Size, Pattern, Tube/Tubeless, Qty, Purchase, Selling, Rack, LOW badge"
-    - "Stock math: opening + purchase - sales = current (regression)"
-    - "All 7 categories open without runtime error"
+    - "Stabilization: OCR crash on Android 13+ (MediaTypeOptions removed)"
+    - "Inventory categories: Bike/Scooter split + LCV added (8+bus = 9 total)"
+    - "Billing GST/Kacha PDF layout + separate auto-increment counters"
+    - "Firebase config (blocked on credentials — falls back to AsyncStorage)"
+    - "eas.json created for Android production build"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
