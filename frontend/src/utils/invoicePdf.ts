@@ -569,25 +569,81 @@ export function buildInvoiceHtml(opts: BuildInvoiceOptions): string {
   return pickBuilder(opts)(opts);
 }
 
+// A4 page dimensions in points (72dpi). expo-print defaults to US-Letter which
+// silently crops A4-designed content and can produce a blank last page on
+// Android — the primary root cause of the "blank PDF" bug reported by users.
+const A4_WIDTH_PT = 595;
+const A4_HEIGHT_PT = 842;
+
+// Opens the generated HTML in a printable browser tab on the WEB preview.
+// `Print.printToFileAsync` on web returns an HTML data-URI (not a real PDF)
+// that renders blank in some browsers, so we render the HTML directly in a
+// new window and trigger the native print dialog. This produces a real
+// "Save as PDF" flow via the OS print sheet.
+function openHtmlForPrintWeb(html: string, title: string): boolean {
+  try {
+    const g = globalThis as unknown as {
+      window?: {
+        open?: (
+          u: string,
+          t?: string,
+          f?: string,
+        ) => { document?: Document; focus?: () => void; print?: () => void } | null;
+      };
+    };
+    if (!g.window?.open) return false;
+    const win = g.window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
+    if (!win || !win.document) return false;
+    // Inject the HTML AND an auto-print trigger once the DOM has settled.
+    const doc = win.document as unknown as {
+      open?: () => void;
+      write?: (s: string) => void;
+      close?: () => void;
+    };
+    doc.open?.();
+    doc.write?.(
+      html.replace(
+        "</body>",
+        `<script>window.document.title=${JSON.stringify(title)};` +
+          `window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},250);});` +
+          `</script></body>`,
+      ),
+    );
+    doc.close?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function generateAndShareInvoice(opts: BuildInvoiceOptions): Promise<string | null> {
   const html = pickBuilder(opts)(opts);
+  const title = `${opts.invoiceType} ${opts.invoiceNumber}`;
   try {
-    const result = await Print.printToFileAsync({ html, base64: false });
+    if (Platform.OS === "web") {
+      // On the web preview we bypass expo-print and use the browser's own
+      // print pipeline so the HTML renders exactly as designed with real PDF.
+      const ok = openHtmlForPrintWeb(html, title);
+      if (!ok) console.warn("[invoicePdf] web print blocked (popup?)");
+      return ok ? "web-print" : null;
+    }
+
+    // Native (iOS + Android): render into a PDF file with EXPLICIT A4
+    // dimensions — the previous blank-PDF bug was caused by expo-print
+    // defaulting to 612×792 (US Letter) which cropped the A4-designed layout.
+    const result = await Print.printToFileAsync({
+      html,
+      base64: false,
+      width: A4_WIDTH_PT,
+      height: A4_HEIGHT_PT,
+      margins: { left: 20, right: 20, top: 20, bottom: 20 },
+    });
     const uri = result?.uri;
     if (!uri) return null;
-    if (Platform.OS === "web") {
-      try {
-        const w = (globalThis as unknown as { window?: { open?: (u: string, t?: string) => void } }).window;
-        if (w?.open) w.open(uri, "_blank");
-      } catch {
-        /* ignore */
-      }
-      return uri;
-    }
     if (!(await Sharing.isAvailableAsync())) return uri;
     await Sharing.shareAsync(uri, {
       mimeType: "application/pdf",
-      dialogTitle: `${opts.invoiceType} ${opts.invoiceNumber}`,
+      dialogTitle: title,
       UTI: "com.adobe.pdf",
     });
     return uri;
@@ -603,8 +659,18 @@ export async function generateAndShareKachaBill(opts: BuildInvoiceOptions): Prom
 
 export async function printInvoice(opts: BuildInvoiceOptions): Promise<void> {
   const html = pickBuilder(opts)(opts);
+  const title = `${opts.invoiceType} ${opts.invoiceNumber}`;
   try {
-    await Print.printAsync({ html });
+    if (Platform.OS === "web") {
+      openHtmlForPrintWeb(html, title);
+      return;
+    }
+    // Native: use printAsync with the same A4 dimensions.
+    await Print.printAsync({
+      html,
+      width: A4_WIDTH_PT,
+      height: A4_HEIGHT_PT,
+    });
   } catch (e) {
     console.warn("[invoicePdf] printInvoice failed", e);
   }

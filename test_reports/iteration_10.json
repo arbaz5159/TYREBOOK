@@ -1,0 +1,59 @@
+{
+  "summary": "PDF-blank-bug verification — FAILED. The applied fix in /app/frontend/src/utils/invoicePdf.ts does NOT work on the web preview: the popup opens BUT is completely blank (body.innerText.length == 0 for BOTH the GST Invoice and the Kacha Bill). Root cause identified: openHtmlForPrintWeb() calls `window.open('', '_blank', 'noopener,noreferrer,width=900,height=1000')`. Per the HTML spec (see MDN), when the windowFeatures string contains `noopener` (or `noreferrer`), `window.open()` returns `null`. The subsequent guard `if (!win || !win.document) return false;` therefore fails silently, logging `[invoicePdf] web print blocked (popup?)` (visible in console), and NOTHING is ever written into the popup document. Result: a blank tab — exact same user-visible symptom as the original bug. TEST A: FAIL (0 chars). TEST B: FAIL (0 chars). TEST C: FAIL (0 chars). TEST D: PASS (no pageerror). TEST E: PASS (both counters incremented 0001→0002 independently, confirming save still works).",
+  "test_results": {
+    "S1_shop_config": {"status": "PASS", "evidence": "All 13 fields filled and Save Changes tapped; no error. On reload, shop-inv-next=0001, shop-kacha-next=0001 (starting values)."},
+    "TEST_A_gst_invoice_pdf": {"status": "FAIL", "evidence": "Popup opened (Playwright captured it) but body.innerText length = 0. Missing ALL required keywords. Console showed: '[invoicePdf] web print blocked (popup?)'. First 200 chars of popup body: '' (empty)."},
+    "TEST_B_kacha_bill_pdf": {"status": "FAIL", "evidence": "Popup opened but body.innerText length = 0. Missing ALL required keywords. Console showed: '[invoicePdf] web print blocked (popup?)'. First 200 chars: '' (empty)."},
+    "TEST_C_no_blank_window": {"status": "FAIL", "evidence": "Both popups have body length 0 (must be > 500). The blank-PDF bug is NOT fixed on web preview."},
+    "TEST_D_print_button_no_error": {"status": "PASS", "evidence": "Tapped print-sale-<id> on /billing. Zero pageerrors thrown. openHtmlForPrintWeb returned false silently, which is acceptable per spec."},
+    "TEST_E_no_regression_on_save": {"status": "PASS", "evidence": "Before: inv_next=0001, kacha_next=0001. After creating one GST + one Kacha bill: inv_next=0002, kacha_next=0002. Counters incremented INDEPENDENTLY as designed. Reaching /billing after each sale-save-btn tap confirms the sale write completed."}
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "src/utils/invoicePdf.ts → openHtmlForPrintWeb()",
+        "issue": "window.open() is called with windowFeatures='noopener,noreferrer,width=900,height=1000'. Per HTML spec, when noopener/noreferrer is set in windowFeatures, window.open() ALWAYS returns null — the caller cannot access the child window. The guard `if (!win || !win.document) return false;` then fails and NOTHING is written into the new tab. Result: the popup is a completely blank tab, which reproduces the exact original 'blank PDF' user bug. Reference: /app/frontend/src/utils/invoicePdf.ts:595",
+        "testID": "share-sale-<id>",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "src/utils/invoicePdf.ts → openHtmlForPrintWeb()",
+        "issue": "Even if noopener/noreferrer is removed, popup-blocking policies still require the window.open() call to be inside a synchronous user-gesture callback. Currently it is called from an async chain (generateAndShareInvoice → openHtmlForPrintWeb) triggered by React's TouchableOpacity onPress. Because there is no await before window.open(), this SHOULD still be within the gesture, but wrapping the generation in Promise/setTimeout can break it. Confirm the call is still synchronous relative to the click. Reference: /app/frontend/src/utils/invoicePdf.ts:619-629",
+        "testID": "share-sale-<id>",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Generate Bill → Share PDF (web preview)",
+        "issue": "End-to-end blank popup. The fix summary says the web-preview flow 'opens a NEW WINDOW, writes the invoice HTML directly, and auto-triggers window.print()' — verified: the new window OPENS, but NO HTML is written into it because window.open() returned null due to noopener/noreferrer feature flag.",
+        "affected_testIDs": ["share-sale-<id>", "print-sale-<id>"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "CRITICAL FIX: In /app/frontend/src/utils/invoicePdf.ts line 595, remove 'noopener,noreferrer' from the windowFeatures string of window.open(). Change from `g.window.open('', '_blank', 'noopener,noreferrer,width=900,height=1000')` to `g.window.open('', '_blank', 'width=900,height=1000')`. Per MDN, specifying noopener/noreferrer forces the return value to null, so the subsequent guard aborts and nothing is written. This is why the popup renders blank.",
+    "Optional safer alternative: create a Blob URL from the HTML string and open that: `const blob = new Blob([html], {type:'text/html'}); const url = URL.createObjectURL(blob); const win = window.open(url, '_blank');` then add the auto-print via a query flag or by injecting the script into the HTML before creating the blob.",
+    "After the fix, re-run this iteration's script to verify TEST A / B / C all pass (body length > 500 with all required keywords present).",
+    "Native (iOS/Android) A4 dimensions fix could NOT be verified from web preview — recommend a manual smoke test on an Expo Go device or dev-build to confirm the A4_WIDTH_PT / A4_HEIGHT_PT change also renders content on Android (the original blank-on-native symptom).",
+    "Consider centralising the invoicePdf module test with a small Node-level unit test that snapshots buildGstInvoiceHtml() / buildKachaBillHtml() outputs — this at least guarantees the HTML BUILDER is producing the expected content, isolating the failure to the delivery mechanism."
+  ],
+  "critical_code_review_comments": [
+    "invoicePdf.ts openHtmlForPrintWeb(): window.open with noopener,noreferrer + feature-string ALWAYS returns null — this is the exact failure mode being hit. The console warning '[invoicePdf] web print blocked (popup?)' misdiagnoses the cause as popup-blocker; it's actually the noopener flag.",
+    "invoicePdf.ts pickBuilder(): correctly routes 'Kacha Bill' and 'Non-GST Invoice' to buildKachaBillHtml, and everything else to buildGstInvoiceHtml. HTML builders themselves inspected — all required strings ARE emitted by the builders (Sri Krishna Tyres, HSN 4011, INVOICE title, CM-/SKT- prefix, Amount Chargeable, Krishna signature, SBI). So the builders are correct — only the delivery mechanism is broken.",
+    "invoicePdf.ts:634-640 native path: A4_WIDTH_PT=595, A4_HEIGHT_PT=842 explicitly passed to printToFileAsync and margins=20pt applied on all 4 sides. This aligns with the fix description and CSS @page A4 8mm rule. Cannot verify runtime on web preview — requires device build.",
+    "Web-print HTML injection script (line 607-610) uses window.addEventListener('load', ...) + setTimeout 250ms before window.print(). Fine — but never executes because doc.write never runs (win is null).",
+    "There is no ObjectId leakage, no async/sync bugs, no env-var hardcoding in the modified file. Scope of the fix is correctly confined to /app/frontend/src/utils/invoicePdf.ts as described."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "40% (2/5: TEST_D and TEST_E passed; TEST_A, TEST_B, TEST_C failed with identical root cause)"},
+  "seed_data_creation": "Shop config: Sri Krishna Tyres full profile as per S1. Two bills created via /sales/new: (1) GST Invoice for Suresh Traders — 2× MRF ZLX 185/65 R15 @ 4500 + 18% GST, GSTIN 27AACCS1234A1Z1. (2) Kacha Bill for Ravi Walk-in — 1× TVS Eurogrip 90/90 R12 @ 1650. Sale IDs auto-generated (local-<ts>-<rand>).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Re-run this script AFTER main agent removes 'noopener,noreferrer' from openHtmlForPrintWeb's window.open() call in /app/frontend/src/utils/invoicePdf.ts. All required content strings ARE present in the builder output (verified by inspection of buildGstInvoiceHtml / buildKachaBillHtml) — only the delivery to the popup document is broken. After the one-line fix, the popup should populate and all assertions should pass. Login owner@test.com / password (AsyncStorage fallback). Playwright popup capture works via `context.expect_page()` — do NOT rely on wait_for_event('popup') on page level because Playwright emits it on context level for this codebase.",
+  "rca_of_issue": "SYMPTOM: user clicks 'Generate Bill' → PDF is blank. FIX ATTEMPTED: replace expo-print's data-URI-HTML approach with window.open() + doc.write() + auto window.print(). ACTUAL BUG IN FIX: the feature string 'noopener,noreferrer,width=900,height=1000' passed to window.open causes the function to return null (documented HTML-spec behaviour: any noopener/noreferrer in features → return value is nullified so the opener cannot script the child). The code then hits `if (!win || !win.document) return false;` and exits — logging '[invoicePdf] web print blocked (popup?)' — WITHOUT writing any HTML into the popup document. Some browsers still visibly create the blank tab even though the return is null (which is why Playwright detects a popup at all, and why the user sees a blank page instead of nothing happening). REPRODUCTION: (1) login owner@test.com; (2) fill /admin/shop; (3) /sales/new → any bill → Save; (4) /billing → share-sale-<id> → popup opens BLANK. MITIGATION: Remove 'noopener,noreferrer' from windowFeatures. Example: `g.window.open('', '_blank', 'width=900,height=1000')`. This keeps the reference, doc.write() runs, HTML populates, window.print() fires."
+}
