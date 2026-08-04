@@ -141,7 +141,8 @@ export default function TyreForm() {
       };
       if (editingId) await updateTyre(editingId, payload);
       else await createTyre(payload);
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)/inventory");
     } catch (e: any) {
       setErr(e?.message ?? "Failed to save.");
     } finally {
