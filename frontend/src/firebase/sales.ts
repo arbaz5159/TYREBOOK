@@ -9,7 +9,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -20,6 +19,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { listTyres, updateTyre } from "./inventory";
+import { stripUndefined } from "./util";
 import type { Customer, Sale } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -60,8 +60,12 @@ export async function listSales(): Promise<Sale[]> {
     const list = await readLocalSales();
     return list.sort((a, b) => b.date - a.date);
   }
-  const snap = await getDocs(query(collection(db, SALES), orderBy("date", "desc")));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }));
+  // Fetch un-ordered and sort in JS to avoid any composite-index requirement
+  // and to survive documents missing the `date` field.
+  const snap = await getDocs(collection(db, SALES));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }))
+    .sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
 }
 
 export async function listSalesForCustomer(mobileNumber: string): Promise<Sale[]> {
@@ -86,13 +90,11 @@ export async function listCustomers(): Promise<Customer[]> {
     const list = await readLocalCustomers();
     return list.sort((a, b) => b.lastPurchaseAt - a.lastPurchaseAt);
   }
-  const snap = await getDocs(
-    query(collection(db, CUSTOMERS), orderBy("lastPurchaseAt", "desc")),
-  );
-  return snap.docs.map((d) => ({
-    id: d.id,
-    ...(d.data() as Omit<Customer, "id">),
-  }));
+  // Same rationale as listSales — fetch all, sort locally.
+  const snap = await getDocs(collection(db, CUSTOMERS));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Customer, "id">) }))
+    .sort((a, b) => (b.lastPurchaseAt ?? 0) - (a.lastPurchaseAt ?? 0));
 }
 
 async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
@@ -142,7 +144,7 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
     if (sale.vehicleNumber) vehicles.add(sale.vehicleNumber);
     await setDoc(
       ref,
-      {
+      stripUndefined({
         name: sale.customerName || cur.name,
         mobileNumber: id,
         vehicleNumbers: Array.from(vehicles),
@@ -152,11 +154,11 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
         totalDiscountGiven: +(((cur.totalDiscountGiven ?? 0) + discountThisSale)).toFixed(2),
         saleCount: (cur.saleCount ?? 0) + 1,
         lastPurchaseAt: sale.date,
-      },
+      }),
       { merge: true },
     );
   } else {
-    await setDoc(ref, {
+    await setDoc(ref, stripUndefined({
       name: sale.customerName,
       mobileNumber: id,
       vehicleNumbers: sale.vehicleNumber ? [sale.vehicleNumber] : [],
@@ -167,7 +169,7 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
       saleCount: 1,
       lastPurchaseAt: sale.date,
       createdAt: serverTimestamp(),
-    });
+    }));
   }
 }
 
@@ -214,10 +216,10 @@ export async function createSale(
     await writeLocalSales(list);
     return { id, warning };
   }
-  const ref = await addDoc(collection(db, SALES), {
+  const ref = await addDoc(collection(db, SALES), stripUndefined({
     ...payload,
     createdAt: serverTimestamp(),
-  });
+  }));
   return { id: ref.id, warning };
 }
 

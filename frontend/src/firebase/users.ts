@@ -7,8 +7,6 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
@@ -16,6 +14,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { stripUndefined } from "./util";
 import { localId } from "@/src/utils/localId";
 
 export interface StaffUser {
@@ -46,8 +45,10 @@ async function writeLocal(list: StaffUser[]): Promise<void> {
 export async function listUsers(): Promise<StaffUser[]> {
   const db = getDb();
   if (!db) return (await readLocal()).sort((a, b) => a.name.localeCompare(b.name));
-  const snap = await getDocs(query(collection(db, COLLECTION), orderBy("name")));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<StaffUser, "id">) }));
+  const snap = await getDocs(collection(db, COLLECTION));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<StaffUser, "id">) }))
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
 export async function createUser(data: Omit<StaffUser, "id">): Promise<string> {
@@ -59,10 +60,10 @@ export async function createUser(data: Omit<StaffUser, "id">): Promise<string> {
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), {
+  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -80,7 +81,7 @@ export async function updateUser(
     }
     return;
   }
-  await updateDoc(doc(db, COLLECTION, id), data);
+  await updateDoc(doc(db, COLLECTION, id), stripUndefined(data));
 }
 
 export async function deleteUser(id: string): Promise<void> {

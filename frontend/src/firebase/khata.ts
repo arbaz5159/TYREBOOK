@@ -9,7 +9,6 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -18,6 +17,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { stripUndefined } from "./util";
 import { localId } from "@/src/utils/localId";
 
 export type KhataDirection = "credit" | "payment"; // credit = shop gave, payment = customer paid
@@ -59,9 +59,11 @@ export async function listKhata(customerId?: string): Promise<KhataEntry[]> {
       .sort((a, b) => b.date - a.date);
   }
   const col = collection(db, COLLECTION);
+  // Fetch un-ordered and sort locally so a fresh collection doesn't need any
+  // composite index.
   const q = customerId
     ? query(col, where("customerId", "==", customerId))
-    : query(col, orderBy("date", "desc"));
+    : query(col);
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<KhataEntry, "id">) }))
@@ -78,10 +80,10 @@ export async function addKhataEntry(data: Omit<KhataEntry, "id" | "createdAt">):
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), {
+  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 

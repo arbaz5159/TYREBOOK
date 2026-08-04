@@ -8,7 +8,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -18,6 +17,7 @@ import {
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { stripUndefined } from "./util";
 import type { Tyre, VehicleCategoryId } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -51,12 +51,17 @@ export async function listTyres(
       .filter((t) => !tyreClass || t.tyreClass === tyreClass);
   }
   const col = collection(db, COLLECTION);
+  // NOTE: We intentionally do NOT chain `orderBy` when a `where` clause is
+  // present — that combination requires a composite index. Sort locally
+  // instead so the app works on a fresh Firestore project without extra setup.
   const clauses: any[] = [];
   if (categoryId) clauses.push(where("categoryId", "==", categoryId));
   if (tyreClass) clauses.push(where("tyreClass", "==", tyreClass));
-  const q = clauses.length ? query(col, ...clauses, orderBy("brand")) : query(col, orderBy("brand"));
+  const q = clauses.length ? query(col, ...clauses) : query(col);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Tyre, "id">) }));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Tyre, "id">) }))
+    .sort((a, b) => (a.brand ?? "").localeCompare(b.brand ?? ""));
 }
 
 export async function getTyre(id: string): Promise<Tyre | null> {
@@ -80,11 +85,11 @@ export async function createTyre(data: Omit<Tyre, "id">): Promise<string> {
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), {
+  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -102,10 +107,10 @@ export async function updateTyre(
     }
     return;
   }
-  await updateDoc(doc(db, COLLECTION, id), {
+  await updateDoc(doc(db, COLLECTION, id), stripUndefined({
     ...data,
     updatedAt: serverTimestamp(),
-  });
+  }));
 }
 
 export async function deleteTyre(id: string): Promise<void> {

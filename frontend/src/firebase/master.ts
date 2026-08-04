@@ -9,16 +9,17 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
-  orderBy,
-  query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { stripUndefined } from "./util";
 import { localId } from "@/src/utils/localId";
 
 export type MasterCollection =
@@ -57,8 +58,10 @@ export async function listMaster(c: MasterCollection): Promise<MasterItem[]> {
     const list = await readLocal(c);
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
-  const snap = await getDocs(query(collection(db, c), orderBy("name")));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MasterItem, "id">) }));
+  const snap = await getDocs(collection(db, c));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<MasterItem, "id">) }))
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
 export async function createMaster(
@@ -74,11 +77,11 @@ export async function createMaster(
     await writeLocal(c, list);
     return id;
   }
-  const ref = await addDoc(collection(db, c), {
+  const ref = await addDoc(collection(db, c), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -97,7 +100,7 @@ export async function updateMaster(
     }
     return;
   }
-  await updateDoc(doc(db, c, id), { ...data, updatedAt: serverTimestamp() });
+  await updateDoc(doc(db, c, id), stripUndefined({ ...data, updatedAt: serverTimestamp() }));
 }
 
 export async function deleteMaster(c: MasterCollection, id: string): Promise<void> {
@@ -178,10 +181,16 @@ export async function getShopSettings(): Promise<ShopSettings> {
       return DEFAULT_SHOP;
     }
   }
-  const snap = await getDocs(collection(db, "settings"));
-  const shop = snap.docs.find((d) => d.id === "shop");
-  if (!shop) return DEFAULT_SHOP;
-  return { ...DEFAULT_SHOP, ...(shop.data() as ShopSettings) };
+  // Read the single settings/shop document directly — the previous
+  // `getDocs(collection("settings"))` requires broader read permissions and
+  // extra round-trips.
+  try {
+    const snap = await getDoc(doc(db, "settings", "shop"));
+    if (!snap.exists()) return DEFAULT_SHOP;
+    return { ...DEFAULT_SHOP, ...(snap.data() as ShopSettings) };
+  } catch {
+    return DEFAULT_SHOP;
+  }
 }
 
 export async function saveShopSettings(data: ShopSettings): Promise<void> {
@@ -190,10 +199,9 @@ export async function saveShopSettings(data: ShopSettings): Promise<void> {
     await storage.setItem(SHOP_KEY, JSON.stringify({ ...data, updatedAt: Date.now() }));
     return;
   }
-  const { setDoc } = await import("firebase/firestore");
   await setDoc(
     doc(db, "settings", "shop"),
-    { ...data, updatedAt: serverTimestamp() },
+    stripUndefined({ ...data, updatedAt: serverTimestamp() }),
     { merge: true },
   );
 }
