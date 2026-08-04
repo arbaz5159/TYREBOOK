@@ -29,15 +29,16 @@ export interface Permissions {
 }
 
 export function usePermissions(): Permissions {
-  const { user, initializing } = useAuth();
+  const { user, authFired } = useAuth();
   const isOwner = user?.role === "owner";
   const isStaff = !isOwner;
   return {
-    // `loading` is true while Firebase Auth is still hydrating the current
-    // user + role. Screens that gate on ownership (e.g. Add Tyre form,
-    // Admin panel) MUST wait until this flips false before deciding to
-    // redirect — otherwise a hard refresh will bounce the owner off the page.
-    loading: initializing,
+    // `loading` is true until the Firebase Auth listener has actually fired
+    // at least once. Screens that gate on ownership (Add Tyre form, Admin
+    // panel, Purchase form) MUST wait until this flips false — otherwise a
+    // hard refresh on those routes bounces the Owner because `user` is null
+    // during the IndexedDB persistence rehydration window.
+    loading: !authFired,
     isOwner,
     isStaff,
     canCreateRetail: true, // both

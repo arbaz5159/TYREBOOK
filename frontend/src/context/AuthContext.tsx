@@ -12,6 +12,7 @@ import {
 type Ctx = {
   user: AppUser | null;
   initializing: boolean;
+  authFired: boolean;
   signIn: (email: string, password: string, role: UserRole) => Promise<void>;
   signUp: (name: string, email: string, password: string, role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
@@ -22,18 +23,23 @@ const AuthContext = createContext<Ctx | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [authFired, setAuthFired] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     const unsub = subscribeAuth((u) => {
       if (!mounted) return;
       setUser(u);
+      setAuthFired(true);
       setInitializing(false);
     });
-    // Failsafe so we never hang on the splash if Firebase never fires.
+    // Failsafe so we never hang on the splash screen if Firebase never fires
+    // (e.g. offline first-launch). We only flip `initializing` — permission
+    // gates (see usePermissions) read `authFired` so they don't misfire
+    // during the async IndexedDB persistence rehydration window.
     const timer = setTimeout(() => {
       if (mounted) setInitializing(false);
-    }, 1500);
+    }, 4000);
     return () => {
       mounted = false;
       clearTimeout(timer);
@@ -45,20 +51,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       initializing,
+      authFired,
       signIn: async (email, password, role) => {
         const u = await fbSignIn(email, password, role);
         setUser(u);
+        setAuthFired(true);
       },
       signUp: async (name, email, password, role) => {
         const u = await fbSignUp(name, email, password, role);
         setUser(u);
+        setAuthFired(true);
       },
       signOut: async () => {
         await fbSignOut();
         setUser(null);
+        setAuthFired(true);
       },
     }),
-    [user, initializing],
+    [user, initializing, authFired],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
