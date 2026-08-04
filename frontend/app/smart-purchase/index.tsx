@@ -28,6 +28,7 @@ export default function SmartPurchaseScanner() {
   const [busy, setBusy] = useState<null | "camera" | "gallery" | "pdf">(null);
   const [error, setError] = useState<string | null>(null);
 
+  if (perms.loading) return null;
   if (!perms.canCreatePurchase) return <Redirect href="/(tabs)/dashboard" />;
 
   const run = async (b64: string, mime: string, imageUri?: string) => {

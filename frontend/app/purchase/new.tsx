@@ -43,6 +43,7 @@ export default function NewPurchase() {
   const gstAmount = (subtotal * gstPercent) / 100;
   const total = subtotal + gstAmount;
 
+  if (perms.loading) return null;
   if (!perms.canCreatePurchase) return <Redirect href="/(tabs)/dashboard" />;
 
   const onSave = async () => {

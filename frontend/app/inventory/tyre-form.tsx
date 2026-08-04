@@ -62,6 +62,7 @@ export default function TyreForm() {
   const isDetailed = tyreClass === "new";
 
   useEffect(() => {
+    if (perms.loading) return;
     if (!perms.canEditStock) return;
     (async () => {
       if (!editingId) return;
@@ -87,8 +88,22 @@ export default function TyreForm() {
       setCurrentStock(String(t.currentStock ?? ""));
       setRackNumber(t.rackNumber ?? "");
     })();
-  }, [editingId, perms.canEditStock]);
+  }, [editingId, perms.loading, perms.canEditStock]);
 
+  // Wait for the auth hydration to finish before deciding to redirect —
+  // otherwise a hard refresh on this route bounces the Owner back to the
+  // Inventory tab because `user` is momentarily null.
+  if (perms.loading) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <View style={{ width: 40 }} />
+          <Text style={styles.title}>Loading…</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </SafeAreaView>
+    );
+  }
   if (!perms.canEditStock) return <Redirect href="/(tabs)/inventory" />;
 
   const onSave = async () => {

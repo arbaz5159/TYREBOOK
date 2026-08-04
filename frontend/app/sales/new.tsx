@@ -158,25 +158,38 @@ export default function NewSale() {
       const grandTotal = +(taxable + totalGst).toFixed(2);
 
       // Post-write side effects: KhataBook entry + PDF share.
+      // These MUST NOT abort the redirect if they fail — the sale itself is
+      // already committed to Firestore. A failed khata write / PDF render
+      // shouldn't strand the user on the New Sale form.
       if (paymentMode === "Credit" && mobileNumber.trim()) {
-        await addKhataEntry({
-          customerId: mobileNumber.trim(),
-          customerName: customerName.trim(),
-          direction: "credit",
-          amount: grandTotal,
-          note: `Sale ${brand.trim()} ${model.trim()} ${size.trim()}`,
-          reference: invoiceNumber,
-          date: saleDate,
-        });
+        try {
+          await addKhataEntry({
+            customerId: mobileNumber.trim(),
+            customerName: customerName.trim(),
+            direction: "credit",
+            amount: grandTotal,
+            note: `Sale ${brand.trim()} ${model.trim()} ${size.trim()}`,
+            reference: invoiceNumber,
+            date: saleDate,
+          });
+        } catch (khataErr) {
+          console.warn("[sale] KhataBook entry failed (sale still saved):", khataErr);
+        }
       }
 
       // Fire and forget the PDF share so the flow doesn't block on user.
-      generateAndShareInvoice({
-        invoiceType: billKind,
-        invoiceNumber,
-        sale: { ...salePayload, id: res.id, totalValue: grandTotal, createdAt: saleDate },
-        shop: shopSnapshot,
-      }).catch(() => {});
+      try {
+        generateAndShareInvoice({
+          invoiceType: billKind,
+          invoiceNumber,
+          sale: { ...salePayload, id: res.id, totalValue: grandTotal, createdAt: saleDate },
+          shop: shopSnapshot,
+        }).catch((pdfErr) => {
+          console.warn("[sale] PDF share failed (sale still saved):", pdfErr);
+        });
+      } catch (pdfErr) {
+        console.warn("[sale] PDF share threw synchronously:", pdfErr);
+      }
 
       if (res.warning) {
         setWarn(res.warning);
@@ -185,6 +198,7 @@ export default function NewSale() {
         router.replace("/(tabs)/billing");
       }
     } catch (e: any) {
+      console.error("[sale] Save failed:", e);
       setErr(e?.message ?? "Failed to save sale.");
     } finally {
       setSaving(false);

@@ -10,6 +10,7 @@
 import { useAuth } from "@/src/context/AuthContext";
 
 export interface Permissions {
+  loading: boolean;
   isOwner: boolean;
   isStaff: boolean;
   canCreateRetail: boolean;
@@ -28,10 +29,15 @@ export interface Permissions {
 }
 
 export function usePermissions(): Permissions {
-  const { user } = useAuth();
+  const { user, initializing } = useAuth();
   const isOwner = user?.role === "owner";
   const isStaff = !isOwner;
   return {
+    // `loading` is true while Firebase Auth is still hydrating the current
+    // user + role. Screens that gate on ownership (e.g. Add Tyre form,
+    // Admin panel) MUST wait until this flips false before deciding to
+    // redirect — otherwise a hard refresh will bounce the owner off the page.
+    loading: initializing,
     isOwner,
     isStaff,
     canCreateRetail: true, // both
