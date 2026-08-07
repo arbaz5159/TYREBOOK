@@ -234,25 +234,36 @@ async function hydrateAppUser(
 
   // 2. Load existing users/{uid} doc.
   const existing = await readUserDoc(user.uid);
+
+  // SECURITY: `super_admin` MAY ONLY be granted via the env allow-list.
+  // If Firestore claims a role of `super_admin` for a non-whitelisted
+  // email (tampering, stale data, or a demoted account), coerce back to
+  // `shop_admin` before we act on it. The whitelist check happens above
+  // (step 1) so an actual super-admin has already been handled and
+  // returned early — reaching here means the email is NOT whitelisted.
+  const safeExistingRole: AppRole | undefined =
+    existing?.role === "super_admin" ? "shop_admin" : existing?.role;
+
   if (existing && existing.shopId) {
+    const roleToUse: AppRole = safeExistingRole ?? "shop_admin";
     const shop = await getShop(existing.shopId);
     await upsertUserDoc(user, {
       name: existing.name ?? opts.fallbackName,
-      role: existing.role,
+      role: roleToUse,
       shopId: existing.shopId,
     });
     await upsertMember(existing.shopId, user, {
-      role: existing.role,
+      role: roleToUse,
       name: existing.name ?? opts.fallbackName,
     });
     setActiveShopId(existing.shopId);
     await storage.setItem(SHOP_KEY, existing.shopId);
-    await storage.setItem(ROLE_KEY, existing.role);
+    await storage.setItem(ROLE_KEY, roleToUse);
     return {
       uid: user.uid,
       email,
       displayName: user.displayName ?? existing.name ?? null,
-      role: existing.role,
+      role: roleToUse,
       shopId: existing.shopId,
       shopName: shop?.name,
       shopStatus: shop ? effectiveStatus(shop) : null,

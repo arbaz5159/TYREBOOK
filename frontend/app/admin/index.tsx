@@ -217,11 +217,13 @@ export default function AdminHome() {
   );
 
   if (!user) return null;
-  if (user.role === "staff") {
+  // "Owner Admin Panel" is a Super-Admin-only route. Shop Admins and
+  // Staff — even by typing the URL manually — are redirected out. The
+  // super_admin role itself is granted only via EXPO_PUBLIC_SUPER_ADMIN_EMAILS
+  // (see /src/firebase/auth.ts:hydrateAppUser) so a tampered Firestore
+  // role field cannot elevate access.
+  if (user.role !== "super_admin") {
     return <Redirect href="/(tabs)/settings" />;
-  }
-  if (user.role === "super_admin" && !user.shopId) {
-    return <Redirect href="/super-admin" />;
   }
 
   return (

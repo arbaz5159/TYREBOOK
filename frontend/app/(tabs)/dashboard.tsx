@@ -379,7 +379,9 @@ export default function Dashboard() {
           </TouchableOpacity>
         ) : null}
 
-        {user?.role === "shop_admin" || user?.role === "super_admin" ? (
+        {/* "Owner Admin Panel" is Super-Admin-only. Shop Admins & Staff
+            never see this banner. */}
+        {user?.role === "super_admin" ? (
           <TouchableOpacity
             style={styles.adminBanner}
             onPress={() => router.push("/admin")}
@@ -388,7 +390,7 @@ export default function Dashboard() {
             <MaterialCommunityIcons name="shield-crown-outline" size={24} color={colors.onBrandPrimary} />
             <View style={{ flex: 1, marginLeft: spacing.md }}>
               <Text style={styles.adminTitle}>Owner Admin Panel</Text>
-              <Text style={styles.adminSub}>Manage master data, users, GST & backups</Text>
+              <Text style={styles.adminSub}>Master data · users · GST · backups (super-admin only)</Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.onBrandPrimary} />
           </TouchableOpacity>

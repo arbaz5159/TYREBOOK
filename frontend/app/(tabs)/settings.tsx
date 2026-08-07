@@ -16,7 +16,8 @@ interface Row {
   href?: string;
   onPress?: () => void;
   danger?: boolean;
-  ownerOnly?: boolean;
+  ownerOnly?: boolean;      // shop_admin or super_admin
+  superAdminOnly?: boolean; // super_admin only
 }
 
 export default function Settings() {
@@ -33,10 +34,14 @@ export default function Settings() {
         : "Staff";
 
   const rows: Row[] = [
-    { icon: "shield-star-outline", label: "Super Admin Panel", hint: "Manage all shops & subscriptions", href: "/super-admin", ownerOnly: false },
-    { icon: "shield-crown-outline", label: "Owner Admin Panel", hint: "Manage master data & users", href: "/admin", ownerOnly: true },
+    { icon: "shield-star-outline", label: "Super Admin Panel", hint: "Manage all shops & subscriptions", href: "/super-admin", superAdminOnly: true },
+    // "Owner Admin Panel" is a Super-Admin-only surface. Shop Admins reach
+    // shop-scoped settings via the direct rows below (Shop Details, GST,
+    // Manage Team, etc.) — not via /admin.
+    { icon: "shield-crown-outline", label: "Owner Admin Panel", hint: "Master data · master lists · super-admin only", href: "/admin", superAdminOnly: true },
     { icon: "store-outline", label: "Shop Details", hint: "Name, address, phone", href: "/admin/shop", ownerOnly: true },
     { icon: "receipt-text-outline", label: "GST & Invoice Settings", hint: "GSTIN, prefix, footer", href: "/admin/shop", ownerOnly: true },
+    { icon: "account-group-outline", label: "Manage Team", hint: "Invite staff · toggle access", href: "/admin/users", ownerOnly: true },
     { icon: "book-account-outline", label: "KhataBook", hint: "Customer ledger & credit", href: "/khata" },
     { icon: "text-recognition", label: "AI Invoice Scanner", hint: "OCR supplier invoices", href: "/smart-purchase" },
     { icon: "translate", label: "Language", hint: "Choose app language", href: "/language" },
@@ -69,9 +74,9 @@ export default function Settings() {
 
         {rows
           .filter((r) => {
-            // Super Admin panel row: only visible for super_admin
-            if (r.label === "Super Admin Panel") return isSuperAdmin;
-            return !r.ownerOnly || isOwner;
+            if (r.superAdminOnly) return isSuperAdmin;
+            if (r.ownerOnly) return isOwner;
+            return true;
           })
           .map((row) => (
             <TouchableOpacity
