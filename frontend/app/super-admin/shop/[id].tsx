@@ -31,9 +31,24 @@ import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 //   - Extend trial / renew plan by N days
 //   - Suspend / re-activate
 
-function fmt(ts?: number | null): string {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString("en-IN", {
+function toMs(ts?: any): number | null {
+  if (ts == null) return null;
+  // Firestore Timestamp instance (has toDate()) OR unix-ms number.
+  if (typeof ts === "number") return ts;
+  if (typeof ts === "object" && typeof ts.toDate === "function") {
+    return ts.toDate().getTime();
+  }
+  if (typeof ts === "object" && typeof ts.seconds === "number") {
+    return ts.seconds * 1000;
+  }
+  const n = Number(ts);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmt(ts?: any): string {
+  const ms = toMs(ts);
+  if (ms == null) return "—";
+  return new Date(ms).toLocaleString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });

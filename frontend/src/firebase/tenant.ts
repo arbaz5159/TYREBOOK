@@ -37,12 +37,44 @@ import {
   type Firestore,
 } from "firebase/firestore";
 
-let activeShopId: string | null = null;
+const WEB_STORAGE_KEY = "tyrebook.tenant.activeShopId";
+
+/**
+ * Synchronous hydration from web `localStorage` — this lets tenant-scoped
+ * reads succeed on the first render after a hard-reload, before
+ * AuthContext has re-run `onAuthStateChanged`. On native this is a no-op
+ * (native uses AsyncStorage via the auth flow instead).
+ */
+function readWebInitial(): string | null {
+  try {
+    if (typeof globalThis !== "undefined" && (globalThis as any).localStorage) {
+      const v = (globalThis as any).localStorage.getItem(WEB_STORAGE_KEY);
+      return typeof v === "string" && v.length > 0 ? v : null;
+    }
+  } catch {
+    /* SSR / private mode / access denied */
+  }
+  return null;
+}
+
+function writeWebPersist(id: string | null): void {
+  try {
+    if (typeof globalThis !== "undefined" && (globalThis as any).localStorage) {
+      if (id) (globalThis as any).localStorage.setItem(WEB_STORAGE_KEY, id);
+      else (globalThis as any).localStorage.removeItem(WEB_STORAGE_KEY);
+    }
+  } catch {
+    /* no-op */
+  }
+}
+
+let activeShopId: string | null = readWebInitial();
 const listeners = new Set<(id: string | null) => void>();
 
 export function setActiveShopId(id: string | null): void {
   if (activeShopId === id) return;
   activeShopId = id;
+  writeWebPersist(id);
   listeners.forEach((l) => {
     try {
       l(id);

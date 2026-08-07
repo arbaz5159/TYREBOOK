@@ -31,18 +31,29 @@ const STATUS_BADGE: Record<
   suspended: { bg: "#FFDAD6", fg: "#B3261E", label: "Suspended", icon: "lock-outline" },
 };
 
-function fmtDate(ts?: number | null): string {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleDateString("en-IN", {
+function toMs(ts?: any): number | null {
+  if (ts == null) return null;
+  if (typeof ts === "number") return ts;
+  if (typeof ts === "object" && typeof ts.toDate === "function") return ts.toDate().getTime();
+  if (typeof ts === "object" && typeof ts.seconds === "number") return ts.seconds * 1000;
+  const n = Number(ts);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtDate(ts?: any): string {
+  const ms = toMs(ts);
+  if (ms == null) return "—";
+  return new Date(ms).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
 }
 
-function daysLeft(ts?: number | null): string {
-  if (!ts) return "";
-  const diff = Math.ceil((ts - Date.now()) / (24 * 60 * 60 * 1000));
+function daysLeft(ts?: any): string {
+  const ms = toMs(ts);
+  if (ms == null) return "";
+  const diff = Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
   if (diff <= 0) return "expired";
   return `${diff} day${diff === 1 ? "" : "s"} left`;
 }
