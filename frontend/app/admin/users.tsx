@@ -28,6 +28,21 @@ import {
 import type { ShopInvite } from "@/src/firebase/invites";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
+// Convert Firestore Timestamp / seconds / unix-ms to a local date string.
+function fmtInviteDate(ts: any): string {
+  if (ts == null) return "—";
+  let ms: number | null = null;
+  if (typeof ts === "number") ms = ts;
+  else if (typeof ts === "object" && typeof ts.toDate === "function") ms = ts.toDate().getTime();
+  else if (typeof ts === "object" && typeof ts.seconds === "number") ms = ts.seconds * 1000;
+  else {
+    const n = Number(ts);
+    if (Number.isFinite(n)) ms = n;
+  }
+  if (ms == null) return "—";
+  return new Date(ms).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 // Shop Admin — team management via invites.
 //
 // The old flow (create user + password inside the app) is gone; users
@@ -122,7 +137,7 @@ export default function ManageUsers() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle}>{inv.email}</Text>
-                  <Text style={styles.rowSub}>Awaiting signup · sent {new Date(inv.createdAt).toLocaleDateString("en-IN")}</Text>
+                  <Text style={styles.rowSub}>Awaiting signup · sent {fmtInviteDate(inv.createdAt)}</Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => revokeInvite(inv.id).then(load)}
