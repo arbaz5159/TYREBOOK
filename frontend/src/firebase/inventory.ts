@@ -3,9 +3,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDoc,
   getDocs,
   query,
@@ -18,6 +18,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import type { Tyre, VehicleCategoryId } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -50,7 +51,7 @@ export async function listTyres(
       .filter((t) => !categoryId || t.categoryId === categoryId)
       .filter((t) => !tyreClass || t.tyreClass === tyreClass);
   }
-  const col = collection(db, COLLECTION);
+  const col = tenantCol(db, COLLECTION);
   // NOTE: We intentionally do NOT chain `orderBy` when a `where` clause is
   // present — that combination requires a composite index. Sort locally
   // instead so the app works on a fresh Firestore project without extra setup.
@@ -70,7 +71,7 @@ export async function getTyre(id: string): Promise<Tyre | null> {
     const list = await readLocal();
     return list.find((t) => t.id === id) ?? null;
   }
-  const snap = await getDoc(doc(db, COLLECTION, id));
+  const snap = await getDoc(tenantDoc(db, COLLECTION, id));
   if (!snap.exists()) return null;
   return { id: snap.id, ...(snap.data() as Omit<Tyre, "id">) };
 }
@@ -85,7 +86,7 @@ export async function createTyre(data: Omit<Tyre, "id">): Promise<string> {
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
+  const ref = await addDoc(tenantCol(db, COLLECTION), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -107,7 +108,7 @@ export async function updateTyre(
     }
     return;
   }
-  await updateDoc(doc(db, COLLECTION, id), stripUndefined({
+  await updateDoc(tenantDoc(db, COLLECTION, id), stripUndefined({
     ...data,
     updatedAt: serverTimestamp(),
   }));
@@ -120,7 +121,7 @@ export async function deleteTyre(id: string): Promise<void> {
     await writeLocal(list.filter((t) => t.id !== id));
     return;
   }
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(tenantDoc(db, COLLECTION, id));
 }
 
 // Increment stock by qty; called by Purchase module. If matching tyre by

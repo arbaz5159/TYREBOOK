@@ -16,12 +16,10 @@ import { AppTextField } from "@/src/components/AppTextField";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
-import type { UserRole } from "@/src/firebase/auth";
 
 export default function LoginScreen() {
   const router = useRouter();
   const { signIn } = useAuth();
-  const [role, setRole] = useState<UserRole>("owner");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +33,9 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await signIn(email.trim(), password, role);
+      await signIn(email.trim(), password);
+      // AuthContext will route to the right landing screen; also nudge here
+      // so a fast redirect happens for immediate feedback.
       router.replace("/(tabs)/dashboard");
     } catch (e: any) {
       setError(e?.message ?? "Login failed. Please try again.");
@@ -62,34 +62,7 @@ export default function LoginScreen() {
           </View>
 
           <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in to manage your tyre shop</Text>
-
-          {/* Role segmented control */}
-          <View style={styles.segment} testID="role-segmented">
-            {(["owner", "staff"] as UserRole[]).map((r) => {
-              const active = role === r;
-              return (
-                <TouchableOpacity
-                  key={r}
-                  testID={`role-${r}`}
-                  onPress={() => setRole(r)}
-                  activeOpacity={0.85}
-                  style={[styles.segItem, active && styles.segItemActive]}
-                >
-                  <MaterialCommunityIcons
-                    name={r === "owner" ? "crown" : "account-tie"}
-                    size={18}
-                    color={active ? colors.onBrandTertiary : colors.onSurfaceSecondary}
-                  />
-                  <Text
-                    style={[styles.segText, active && { color: colors.onBrandTertiary, fontWeight: "700" }]}
-                  >
-                    {r === "owner" ? "Owner Login" : "Staff Login"}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <Text style={styles.subtitle}>Sign in to your tyre shop</Text>
 
           <View style={{ marginTop: spacing.xl }}>
             <AppTextField

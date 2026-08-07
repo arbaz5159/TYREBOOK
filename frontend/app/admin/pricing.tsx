@@ -62,7 +62,9 @@ export default function PricingManagement() {
     hydrate();
   }, [hydrate]);
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
 
   const onSave = async () => {
     setSaving(true);

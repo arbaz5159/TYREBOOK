@@ -217,8 +217,11 @@ export default function AdminHome() {
   );
 
   if (!user) return null;
-  if (user.role !== "owner") {
+  if (user.role === "staff") {
     return <Redirect href="/(tabs)/settings" />;
+  }
+  if (user.role === "super_admin" && !user.shopId) {
+    return <Redirect href="/super-admin" />;
   }
 
   return (

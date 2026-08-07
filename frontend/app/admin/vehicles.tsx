@@ -48,7 +48,9 @@ export default function VehiclesAdmin() {
     load();
   }, [load]);
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
 
   const submit = async () => {
     if (!name.trim()) return;

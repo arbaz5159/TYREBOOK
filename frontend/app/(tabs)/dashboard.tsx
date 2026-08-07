@@ -362,7 +362,24 @@ export default function Dashboard() {
           />
         </View>
 
-        {user?.role === "owner" ? (
+        {user?.role === "super_admin" ? (
+          <TouchableOpacity
+            style={[styles.adminBanner, { backgroundColor: "#1F2937" }]}
+            onPress={() => router.push("/super-admin")}
+            testID="open-super-admin-panel"
+          >
+            <MaterialCommunityIcons name="shield-star-outline" size={24} color="#FFFFFF" />
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <Text style={[styles.adminTitle, { color: "#FFFFFF" }]}>Super Admin Panel</Text>
+              <Text style={[styles.adminSub, { color: "rgba(255,255,255,0.8)" }]}>
+                Manage all shops & subscriptions
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        ) : null}
+
+        {user?.role === "shop_admin" || user?.role === "super_admin" ? (
           <TouchableOpacity
             style={styles.adminBanner}
             onPress={() => router.push("/admin")}

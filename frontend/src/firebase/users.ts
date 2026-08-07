@@ -1,33 +1,46 @@
-// Simple staff/user roster managed by the Owner.
-// Docs shape: { id, name, email, role: "owner" | "staff", active }
+// Shop staff roster — one doc per member at `shops/{shopId}/members/{uid}`.
+//
+// The user's authentication record lives at the global `users/{uid}` doc
+// (managed by /src/firebase/auth.ts). This module only manages the
+// tenant-scoped MIRROR used to render the Shop Admin's team list and to
+// enable/disable individual staff.
+//
+// Adding a new staff member from the Shop Admin panel is a two-step flow:
+//   1. Shop Admin calls `inviteStaff({ email })` (see ./invites.ts).
+//   2. Invitee signs up with that email → /src/firebase/auth.ts consumes
+//      the invite and creates the member doc automatically.
+//
+// So this file exposes list / toggle-active / delete for the *members*
+// collection, plus a re-export of `inviteStaff` so screens have a single
+// import surface.
 
 import {
-  addDoc,
-  collection,
   deleteDoc,
-  doc,
   getDocs,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
+import { inviteStaff as inviteStaffCore, listInvitesForShop, revokeInvite } from "./invites";
+import { tenantCol, tenantDoc } from "./tenant";
 import { stripUndefined } from "./util";
 import { localId } from "@/src/utils/localId";
 
 export interface StaffUser {
-  id: string;
+  id: string; // uid for Firebase-backed members; localId() for offline mock
   name: string;
   email: string;
-  role: "owner" | "staff";
+  role: "shop_admin" | "staff";
   active: boolean;
   createdAt?: number;
 }
 
-const COLLECTION = "users";
-const LOCAL_KEY = "tyrebook.users";
+const COLLECTION = "members";
+const LOCAL_KEY = "tyrebook.members";
 
 async function readLocal(): Promise<StaffUser[]> {
   const raw = await storage.getItem<string | null>(LOCAL_KEY, null);
@@ -45,12 +58,22 @@ async function writeLocal(list: StaffUser[]): Promise<void> {
 export async function listUsers(): Promise<StaffUser[]> {
   const db = getDb();
   if (!db) return (await readLocal()).sort((a, b) => a.name.localeCompare(b.name));
-  const snap = await getDocs(collection(db, COLLECTION));
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<StaffUser, "id">) }))
-    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  try {
+    const snap = await getDocs(tenantCol(db, COLLECTION));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<StaffUser, "id">) }))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  } catch (e) {
+    console.warn("[users] listUsers failed:", e);
+    return [];
+  }
 }
 
+/**
+ * Legacy no-op: fresh staff should be added via the invite flow. This
+ * helper is kept only for the local-mock code path so screens keep
+ * working when Firebase isn't configured.
+ */
 export async function createUser(data: Omit<StaffUser, "id">): Promise<string> {
   const db = getDb();
   if (!db) {
@@ -60,11 +83,14 @@ export async function createUser(data: Omit<StaffUser, "id">): Promise<string> {
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
-    ...data,
-    createdAt: serverTimestamp(),
-  }));
-  return ref.id;
+  // For real Firebase: create the member doc as a placeholder. Real auth
+  // hook-up happens when the invited email signs up.
+  const id = localId();
+  await setDoc(
+    tenantDoc(db, COLLECTION, id),
+    stripUndefined({ ...data, createdAt: serverTimestamp() }),
+  );
+  return id;
 }
 
 export async function updateUser(
@@ -81,7 +107,7 @@ export async function updateUser(
     }
     return;
   }
-  await updateDoc(doc(db, COLLECTION, id), stripUndefined(data));
+  await updateDoc(tenantDoc(db, COLLECTION, id), stripUndefined(data));
 }
 
 export async function deleteUser(id: string): Promise<void> {
@@ -91,5 +117,17 @@ export async function deleteUser(id: string): Promise<void> {
     await writeLocal(list.filter((x) => x.id !== id));
     return;
   }
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(tenantDoc(db, COLLECTION, id));
 }
+
+// --- Invite re-exports -----------------------------------------------------
+
+export async function inviteStaff(input: {
+  email: string;
+  shopId: string;
+  invitedByUid: string;
+}) {
+  return inviteStaffCore(input);
+}
+
+export { listInvitesForShop, revokeInvite };

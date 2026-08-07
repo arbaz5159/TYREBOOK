@@ -26,7 +26,9 @@ export default function BackupRestore() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
 
   const doExport = async () => {
     setBusy(true);

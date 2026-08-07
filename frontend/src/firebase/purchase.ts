@@ -3,9 +3,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
@@ -15,6 +15,7 @@ import { storage } from "@/src/utils/storage";
 import { getDb } from "./config";
 import { incrementTyreStock } from "./inventory";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import type { Purchase } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -41,7 +42,7 @@ export async function listPurchases(): Promise<Purchase[]> {
     const list = await readLocal();
     return list.sort((a, b) => b.date - a.date);
   }
-  const snap = await getDocs(collection(db, COLLECTION));
+  const snap = await getDocs(tenantCol(db, COLLECTION));
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Purchase, "id">) }))
     .sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
@@ -78,7 +79,7 @@ export async function createPurchase(
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
+  const ref = await addDoc(tenantCol(db, COLLECTION), stripUndefined({
     ...payload,
     createdAt: serverTimestamp(),
   }));
@@ -92,5 +93,5 @@ export async function deletePurchase(id: string): Promise<void> {
     await writeLocal(list.filter((p) => p.id !== id));
     return;
   }
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(tenantDoc(db, COLLECTION, id));
 }

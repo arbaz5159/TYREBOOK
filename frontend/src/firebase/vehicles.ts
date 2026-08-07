@@ -3,9 +3,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDocs,
   serverTimestamp,
   updateDoc,
@@ -15,6 +15,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import type { VehicleModel } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -37,7 +38,7 @@ async function writeLocal(list: VehicleModel[]): Promise<void> {
 export async function listVehicles(): Promise<VehicleModel[]> {
   const db = getDb();
   if (!db) return (await readLocal()).sort((a, b) => a.name.localeCompare(b.name));
-  const snap = await getDocs(collection(db, COLLECTION));
+  const snap = await getDocs(tenantCol(db, COLLECTION));
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<VehicleModel, "id">) }))
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
@@ -52,7 +53,7 @@ export async function createVehicle(data: Omit<VehicleModel, "id">): Promise<str
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({ ...data, createdAt: serverTimestamp() }));
+  const ref = await addDoc(tenantCol(db, COLLECTION), stripUndefined({ ...data, createdAt: serverTimestamp() }));
   return ref.id;
 }
 
@@ -67,7 +68,7 @@ export async function updateVehicle(id: string, data: Partial<Omit<VehicleModel,
     }
     return;
   }
-  await updateDoc(doc(db, COLLECTION, id), stripUndefined(data));
+  await updateDoc(tenantDoc(db, COLLECTION, id), stripUndefined(data));
 }
 
 export async function deleteVehicle(id: string): Promise<void> {
@@ -77,7 +78,7 @@ export async function deleteVehicle(id: string): Promise<void> {
     await writeLocal(list.filter((x) => x.id !== id));
     return;
   }
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(tenantDoc(db, COLLECTION, id));
 }
 
 // Utility: split "Honda Activa 6G, Suzuki Access 125" into normalized tokens.

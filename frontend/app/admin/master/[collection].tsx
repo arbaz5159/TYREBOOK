@@ -59,7 +59,9 @@ export default function MasterEditor() {
     load();
   }, [load]);
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
   if (!validCollection) return <Redirect href="/admin" />;
   const col = validCollection;
   const meta = TITLES[col];

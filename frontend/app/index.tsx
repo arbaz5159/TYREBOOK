@@ -24,12 +24,25 @@ export default function Index() {
           </View>
         </View>
         <Text style={styles.brand}>TyreBook</Text>
-        <Text style={styles.tag}>Inventory · Billing · Khata</Text>
+        <Text style={styles.tag}>Multi-tenant · Inventory · Billing · Khata</Text>
       </View>
     );
   }
 
-  return <Redirect href={user ? "/(tabs)/dashboard" : "/(auth)/login"} />;
+  if (!user) return <Redirect href="/(auth)/login" />;
+
+  // Route by role:
+  //   - super_admin (no active shopId) → Super Admin panel
+  //   - suspended / expired shop        → subscription-locked
+  //   - everyone else                   → normal dashboard
+  if (user.role === "super_admin" && !user.shopId) {
+    return <Redirect href="/super-admin" />;
+  }
+  const status = user.shopStatus;
+  if (status === "suspended" || status === "expired") {
+    return <Redirect href="/subscription-locked" />;
+  }
+  return <Redirect href="/(tabs)/dashboard" />;
 }
 
 const styles = StyleSheet.create({

@@ -4,9 +4,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDoc,
   getDocs,
   query,
@@ -20,6 +20,7 @@ import { storage } from "@/src/utils/storage";
 import { getDb } from "./config";
 import { listTyres, updateTyre } from "./inventory";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import type { Customer, Sale } from "@/src/constants/inventory";
 import { localId } from "@/src/utils/localId";
 
@@ -62,7 +63,7 @@ export async function listSales(): Promise<Sale[]> {
   }
   // Fetch un-ordered and sort in JS to avoid any composite-index requirement
   // and to survive documents missing the `date` field.
-  const snap = await getDocs(collection(db, SALES));
+  const snap = await getDocs(tenantCol(db, SALES));
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }))
     .sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
@@ -77,7 +78,7 @@ export async function listSalesForCustomer(mobileNumber: string): Promise<Sale[]
       .sort((a, b) => b.date - a.date);
   }
   const snap = await getDocs(
-    query(collection(db, SALES), where("mobileNumber", "==", mobileNumber)),
+    query(tenantCol(db, SALES), where("mobileNumber", "==", mobileNumber)),
   );
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Sale, "id">) }))
@@ -91,7 +92,7 @@ export async function listCustomers(): Promise<Customer[]> {
     return list.sort((a, b) => b.lastPurchaseAt - a.lastPurchaseAt);
   }
   // Same rationale as listSales — fetch all, sort locally.
-  const snap = await getDocs(collection(db, CUSTOMERS));
+  const snap = await getDocs(tenantCol(db, CUSTOMERS));
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Customer, "id">) }))
     .sort((a, b) => (b.lastPurchaseAt ?? 0) - (a.lastPurchaseAt ?? 0));
@@ -136,7 +137,7 @@ async function upsertCustomer(sale: Omit<Sale, "id">): Promise<void> {
     return;
   }
 
-  const ref = doc(db, CUSTOMERS, id);
+  const ref = tenantDoc(db, CUSTOMERS, id);
   const snap = await getDoc(ref);
   if (snap.exists()) {
     const cur = snap.data() as Customer;
@@ -216,7 +217,7 @@ export async function createSale(
     await writeLocalSales(list);
     return { id, warning };
   }
-  const ref = await addDoc(collection(db, SALES), stripUndefined({
+  const ref = await addDoc(tenantCol(db, SALES), stripUndefined({
     ...payload,
     createdAt: serverTimestamp(),
   }));
@@ -230,5 +231,5 @@ export async function deleteSale(id: string): Promise<void> {
     await writeLocalSales(list.filter((s) => s.id !== id));
     return;
   }
-  await deleteDoc(doc(db, SALES, id));
+  await deleteDoc(tenantDoc(db, SALES, id));
 }

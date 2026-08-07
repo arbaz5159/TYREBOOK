@@ -1,12 +1,32 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/context/AuthContext";
 import { colors, fontSize } from "@/src/theme/tokens";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const { user, authFired } = useAuth();
+
+  // While Firebase Auth is still hydrating, render nothing rather than
+  // making an incorrect gating decision. `authFired` flips true as soon as
+  // onAuthStateChanged has actually reported for the first time (see
+  // AuthContext), so this only blocks the initial rehydration window.
+  if (!authFired) return null;
+
+  if (!user) return <Redirect href="/(auth)/login" />;
+
+  // Super Admin without a chosen shop lives in a different tab-less panel.
+  if (user.role === "super_admin" && !user.shopId) {
+    return <Redirect href="/super-admin" />;
+  }
+
+  // Locked shops (expired / suspended) can only view the lock screen.
+  if (user.shopStatus === "expired" || user.shopStatus === "suspended") {
+    return <Redirect href="/subscription-locked" />;
+  }
 
   return (
     <Tabs

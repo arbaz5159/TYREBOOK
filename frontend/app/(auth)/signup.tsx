@@ -16,13 +16,17 @@ import { AppTextField } from "@/src/components/AppTextField";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
-import type { UserRole } from "@/src/firebase/auth";
 
+// Signup is now role-less: the platform decides based on the email.
+//   - If EXPO_PUBLIC_SUPER_ADMIN_EMAILS contains this email → super_admin
+//   - Else if a pending shopInvites/{email} exists                → staff (auto-linked)
+//   - Else                                                        → shop_admin
+//     (a new tenant is auto-created with a 14-day trial)
 export default function SignupScreen() {
   const router = useRouter();
   const { signUp } = useAuth();
-  const [role, setRole] = useState<UserRole>("owner");
   const [name, setName] = useState("");
+  const [shopName, setShopName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +35,7 @@ export default function SignupScreen() {
   const onSubmit = async () => {
     setError(null);
     if (!name.trim() || !email.trim() || !password) {
-      setError("Please fill all required fields.");
+      setError("Please fill your name, email and password.");
       return;
     }
     if (password.length < 6) {
@@ -40,7 +44,7 @@ export default function SignupScreen() {
     }
     setLoading(true);
     try {
-      await signUp(name.trim(), email.trim(), password, role);
+      await signUp(name.trim(), email.trim(), password, shopName.trim() || undefined);
       router.replace("/(tabs)/dashboard");
     } catch (e: any) {
       setError(e?.message ?? "Signup failed. Please try again.");
@@ -63,38 +67,33 @@ export default function SignupScreen() {
             <Text style={styles.brand}>TyreBook</Text>
           </View>
 
-          <Text style={styles.title}>Create your account</Text>
-          <Text style={styles.subtitle}>Set up your tyre shop in minutes</Text>
+          <Text style={styles.title}>Create your shop</Text>
+          <Text style={styles.subtitle}>Start a 14-day free trial. No card needed.</Text>
 
-          <View style={styles.segment}>
-            {(["owner", "staff"] as UserRole[]).map((r) => {
-              const active = role === r;
-              return (
-                <TouchableOpacity
-                  key={r}
-                  testID={`signup-role-${r}`}
-                  onPress={() => setRole(r)}
-                  activeOpacity={0.85}
-                  style={[styles.segItem, active && styles.segItemActive]}
-                >
-                  <Text
-                    style={[styles.segText, active && { color: colors.onBrandTertiary, fontWeight: "700" }]}
-                  >
-                    {r === "owner" ? "Owner" : "Staff"}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+          <View style={styles.hintCard}>
+            <MaterialCommunityIcons name="information-outline" size={20} color={colors.brandPrimary} />
+            <Text style={styles.hintText}>
+              Invited by another shop? Just sign up with the same email you were invited
+              on — you&apos;ll join their team automatically.
+            </Text>
           </View>
 
           <View style={{ marginTop: spacing.xl }}>
             <AppTextField
-              label="Full name"
+              label="Your full name"
               value={name}
               onChangeText={setName}
               placeholder="Your name"
               testID="signup-name-input"
               leftIcon={<MaterialCommunityIcons name="account-outline" size={20} color={colors.muted} />}
+            />
+            <AppTextField
+              label="Shop name (optional)"
+              value={shopName}
+              onChangeText={setShopName}
+              placeholder="e.g. QA Tyre House"
+              testID="signup-shop-name-input"
+              leftIcon={<MaterialCommunityIcons name="storefront-outline" size={20} color={colors.muted} />}
             />
             <AppTextField
               label="Email"
@@ -124,7 +123,7 @@ export default function SignupScreen() {
           ) : null}
 
           <PrimaryButton
-            label="Create account"
+            label="Start free trial"
             onPress={onSubmit}
             loading={loading}
             testID="signup-submit-button"
@@ -165,22 +164,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
   },
-  segment: {
+  hintCard: {
     flexDirection: "row",
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.pill,
-    padding: 4,
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.brandTertiary,
+    padding: spacing.md,
+    borderRadius: radius.md,
     marginTop: spacing.sm,
   },
-  segItem: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  segItemActive: { backgroundColor: colors.brandTertiary },
-  segText: { color: colors.onSurfaceSecondary, fontSize: fontSize.base, fontWeight: "600" },
+  hintText: { flex: 1, fontSize: fontSize.xs, color: colors.onBrandTertiary, lineHeight: 18 },
   error: { color: colors.error, fontSize: fontSize.sm, marginBottom: spacing.md },
   footer: {
     marginTop: spacing.xl,

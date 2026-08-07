@@ -13,41 +13,68 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppTextField } from "@/src/components/AppTextField";
-import { ChipRow } from "@/src/components/ChipRow";
 import { EmptyState } from "@/src/components/EmptyState";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
-import { createUser, deleteUser, listUsers, updateUser, type StaffUser } from "@/src/firebase/users";
+import {
+  deleteUser,
+  inviteStaff,
+  listInvitesForShop,
+  listUsers,
+  revokeInvite,
+  updateUser,
+  type StaffUser,
+} from "@/src/firebase/users";
+import type { ShopInvite } from "@/src/firebase/invites";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
+
+// Shop Admin — team management via invites.
+//
+// The old flow (create user + password inside the app) is gone; users
+// authenticate through Firebase Auth, so we invite them by email and the
+// signup flow auto-links them to this shop.
 
 export default function ManageUsers() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [items, setItems] = useState<StaffUser[]>([]);
-  const [name, setName] = useState("");
+  const [members, setMembers] = useState<StaffUser[]>([]);
+  const [invites, setInvites] = useState<ShopInvite[]>([]);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"owner" | "staff">("staff");
   const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setItems(await listUsers());
-  }, []);
+    setMembers(await listUsers());
+    if (user?.shopId) setInvites(await listInvitesForShop(user.shopId));
+  }, [user?.shopId]);
   useEffect(() => {
     load();
   }, [load]);
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
 
   const submit = async () => {
-    if (!name.trim() || !email.trim()) return;
+    setMsg(null);
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes("@")) {
+      setMsg("Enter a valid email address.");
+      return;
+    }
+    if (!user.shopId) {
+      setMsg("No active shop selected.");
+      return;
+    }
     setSaving(true);
     try {
-      await createUser({ name: name.trim(), email: email.trim(), role, active: true });
-      setName("");
+      await inviteStaff({ email: trimmed, shopId: user.shopId, invitedByUid: user.uid });
+      setMsg(`Invite sent to ${trimmed}. They'll join your shop after signup.`);
       setEmail("");
-      setRole("staff");
       await load();
+    } catch (e: any) {
+      setMsg(e?.message ?? "Failed to send invite.");
     } finally {
       setSaving(false);
     }
@@ -60,47 +87,65 @@ export default function ManageUsers() {
           <MaterialCommunityIcons name="arrow-left" size={22} color={colors.onSurface} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: spacing.md }}>
-          <Text style={styles.title}>Manage Users</Text>
-          <Text style={styles.sub}>{items.length} accounts</Text>
+          <Text style={styles.title}>Manage Team</Text>
+          <Text style={styles.sub}>{members.length} members · {invites.length} pending invites</Text>
         </View>
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={styles.form}>
-          <AppTextField label="Full Name" value={name} onChangeText={setName} placeholder="e.g. Rajesh" testID="user-name" />
           <AppTextField
-            label="Email"
+            label="Invite staff by email"
             value={email}
             onChangeText={setEmail}
-            placeholder="user@example.com"
+            placeholder="staff@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
-            testID="user-email"
+            testID="invite-email"
           />
-          <Text style={styles.label}>Role</Text>
-          <ChipRow
-            options={[
-              { value: "owner", label: "Owner" },
-              { value: "staff", label: "Staff" },
-            ]}
-            value={role}
-            onChange={setRole}
-            testIDPrefix="user-role"
-          />
-          <View style={{ marginTop: spacing.md }}>
-            <PrimaryButton label="Add User" onPress={submit} loading={saving} testID="add-user-btn" />
+          <View style={{ marginTop: spacing.sm }}>
+            <PrimaryButton label="Send Invite" onPress={submit} loading={saving} testID="send-invite-btn" />
           </View>
+          {msg ? <Text style={styles.msg}>{msg}</Text> : null}
+          <Text style={styles.hint}>
+            The invitee signs up on this app with the same email; they&apos;ll be added to your shop as Staff automatically.
+          </Text>
         </View>
 
-        {items.length === 0 ? (
+        {invites.length ? (
+          <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.sm }}>
+            <Text style={styles.section}>Pending invites</Text>
+            {invites.map((inv) => (
+              <View key={inv.id} style={styles.row} testID={`invite-${inv.id}`}>
+                <View style={[styles.rowIcon, { backgroundColor: "#FFEAD1" }]}>
+                  <MaterialCommunityIcons name="email-fast-outline" size={20} color={colors.warning} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{inv.email}</Text>
+                  <Text style={styles.rowSub}>Awaiting signup · sent {new Date(inv.createdAt).toLocaleDateString("en-IN")}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => revokeInvite(inv.id).then(load)}
+                  style={styles.miniBtn}
+                  testID={`revoke-${inv.id}`}
+                >
+                  <MaterialCommunityIcons name="close" size={16} color={colors.error} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        <Text style={[styles.section, { paddingHorizontal: spacing.xl }]}>Members</Text>
+        {members.length === 0 ? (
           <EmptyState
-            title="No staff added"
-            message="Add owners and staff who can access this shop."
+            title="No members yet"
+            message="Invite your staff by email — they'll join automatically after signup."
             icon={<MaterialCommunityIcons name="account-group-outline" size={40} color={colors.brandPrimary} />}
           />
         ) : (
           <FlatList
-            data={items}
+            data={members}
             keyExtractor={(u) => u.id}
             contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl }}
             ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
@@ -108,15 +153,15 @@ export default function ManageUsers() {
               <View style={styles.row} testID={`user-${item.id}`}>
                 <View style={styles.rowIcon}>
                   <MaterialCommunityIcons
-                    name={item.role === "owner" ? "crown" : "account-tie"}
+                    name={item.role === "shop_admin" ? "crown" : "account-tie"}
                     size={20}
                     color={colors.brandPrimary}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.rowTitle}>{item.name}</Text>
+                  <Text style={styles.rowTitle}>{item.name || item.email}</Text>
                   <Text style={styles.rowSub}>
-                    {item.email} · {item.role.toUpperCase()} · {item.active ? "Active" : "Disabled"}
+                    {item.email} · {(item.role || "staff").replace("_", " ").toUpperCase()} · {item.active ? "Active" : "Disabled"}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -130,13 +175,15 @@ export default function ManageUsers() {
                     color={colors.brandPrimary}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => deleteUser(item.id).then(load)}
-                  style={[styles.miniBtn, { marginLeft: 6 }]}
-                  testID={`delete-user-${item.id}`}
-                >
-                  <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.error} />
-                </TouchableOpacity>
+                {item.role !== "shop_admin" ? (
+                  <TouchableOpacity
+                    onPress={() => deleteUser(item.id).then(load)}
+                    style={[styles.miniBtn, { marginLeft: 6 }]}
+                    testID={`delete-user-${item.id}`}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.error} />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             )}
           />
@@ -166,11 +213,18 @@ const styles = StyleSheet.create({
   title: { fontSize: fontSize.xl, fontWeight: "800", color: colors.onSurface },
   sub: { fontSize: fontSize.xs, color: colors.muted, marginTop: 2 },
   form: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md },
-  label: {
+  hint: {
+    fontSize: fontSize.xs,
+    color: colors.muted,
+    marginTop: spacing.sm,
+    lineHeight: 18,
+  },
+  msg: { marginTop: spacing.sm, fontSize: fontSize.sm, color: colors.brandPrimary, fontWeight: "600" },
+  section: {
     fontSize: fontSize.sm,
     fontWeight: "700",
     color: colors.onSurfaceSecondary,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   row: {
     flexDirection: "row",
@@ -178,6 +232,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.md,
+    marginBottom: spacing.sm,
   },
   rowIcon: {
     width: 40,

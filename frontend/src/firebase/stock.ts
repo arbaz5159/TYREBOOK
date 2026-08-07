@@ -4,7 +4,7 @@
 
 import {
   addDoc,
-  collection,
+
   getDocs,
   query,
   serverTimestamp,
@@ -16,6 +16,7 @@ import { storage } from "@/src/utils/storage";
 import { getDb } from "./config";
 import { getTyre, updateTyre } from "./inventory";
 import { stripUndefined } from "./util";
+import { tenantCol } from "./tenant";
 import { localId } from "@/src/utils/localId";
 
 export type MovementDirection = "in" | "out";
@@ -56,8 +57,8 @@ export async function listMovements(tyreId?: string): Promise<StockMovement[]> {
     return filtered.sort((a, b) => b.createdAt - a.createdAt);
   }
   const q = tyreId
-    ? query(collection(db, COLLECTION), where("tyreId", "==", tyreId))
-    : query(collection(db, COLLECTION));
+    ? query(tenantCol(db, COLLECTION), where("tyreId", "==", tyreId))
+    : query(tenantCol(db, COLLECTION));
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<StockMovement, "id">) }))
@@ -99,7 +100,7 @@ export async function recordMovement(input: {
     await writeLocal(list);
     return { id, balanceAfter: newStock };
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
+  const ref = await addDoc(tenantCol(db, COLLECTION), stripUndefined({
     ...payload,
     createdAt: serverTimestamp(),
   }));

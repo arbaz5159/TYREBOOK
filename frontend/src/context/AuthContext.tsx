@@ -5,16 +5,19 @@ import {
   signOut as fbSignOut,
   signUp as fbSignUp,
   subscribeAuth,
+  type AppRole,
   type AppUser,
-  type UserRole,
 } from "@/src/firebase/auth";
+
+// Legacy alias for backward compatibility. Prefer AppRole in new code.
+export type UserRole = AppRole;
 
 type Ctx = {
   user: AppUser | null;
   initializing: boolean;
   authFired: boolean;
-  signIn: (email: string, password: string, role: UserRole) => Promise<void>;
-  signUp: (name: string, email: string, password: string, role: UserRole) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (name: string, email: string, password: string, shopName?: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -33,10 +36,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthFired(true);
       setInitializing(false);
     });
-    // Failsafe so we never hang on the splash screen if Firebase never fires
-    // (e.g. offline first-launch). We only flip `initializing` — permission
-    // gates (see usePermissions) read `authFired` so they don't misfire
-    // during the async IndexedDB persistence rehydration window.
+    // Splash-screen failsafe. Only flips `initializing` — screens gate on
+    // `authFired` via usePermissions so they never redirect prematurely
+    // during Firebase Auth's IndexedDB persistence rehydration.
     const timer = setTimeout(() => {
       if (mounted) setInitializing(false);
     }, 4000);
@@ -52,13 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       initializing,
       authFired,
-      signIn: async (email, password, role) => {
-        const u = await fbSignIn(email, password, role);
+      signIn: async (email, password) => {
+        const u = await fbSignIn(email, password);
         setUser(u);
         setAuthFired(true);
       },
-      signUp: async (name, email, password, role) => {
-        const u = await fbSignUp(name, email, password, role);
+      signUp: async (name, email, password, shopName) => {
+        const u = await fbSignUp(name, email, password, shopName);
         setUser(u);
         setAuthFired(true);
       },

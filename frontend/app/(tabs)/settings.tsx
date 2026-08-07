@@ -22,9 +22,18 @@ interface Row {
 export default function Settings() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const isOwner = user?.role === "owner";
+  const isOwner = user?.role === "shop_admin" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "super_admin";
+
+  const roleLabel =
+    user?.role === "super_admin"
+      ? "Super Admin"
+      : user?.role === "shop_admin"
+        ? "Shop Admin"
+        : "Staff";
 
   const rows: Row[] = [
+    { icon: "shield-star-outline", label: "Super Admin Panel", hint: "Manage all shops & subscriptions", href: "/super-admin", ownerOnly: false },
     { icon: "shield-crown-outline", label: "Owner Admin Panel", hint: "Manage master data & users", href: "/admin", ownerOnly: true },
     { icon: "store-outline", label: "Shop Details", hint: "Name, address, phone", href: "/admin/shop", ownerOnly: true },
     { icon: "receipt-text-outline", label: "GST & Invoice Settings", hint: "GSTIN, prefix, footer", href: "/admin/shop", ownerOnly: true },
@@ -41,7 +50,7 @@ export default function Settings() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.sub}>{user?.role === "owner" ? "Owner" : "Staff"} · {user?.email}</Text>
+        <Text style={styles.sub}>{roleLabel} · {user?.email}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -59,7 +68,11 @@ export default function Settings() {
         ) : null}
 
         {rows
-          .filter((r) => !r.ownerOnly || isOwner)
+          .filter((r) => {
+            // Super Admin panel row: only visible for super_admin
+            if (r.label === "Super Admin Panel") return isSuperAdmin;
+            return !r.ownerOnly || isOwner;
+          })
           .map((row) => (
             <TouchableOpacity
               key={row.label}

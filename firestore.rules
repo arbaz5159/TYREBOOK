@@ -1,0 +1,125 @@
+rules_version = '2';
+
+// TyreBook multi-tenant Firestore security rules.
+//
+// Tenant model:
+//   users/{uid}              — global user profile. Read/write only by
+//                              the owner uid or a super_admin.
+//   shopInvites/{emailKey}   — global pending invites. Any signed-in user
+//                              can read (needed by signup flow to consume
+//                              their own invite) and shop_admins /
+//                              super_admins can create/revoke.
+//   shops/{shopId}           — tenant root doc. Members of that shop can
+//                              read; only the shop_admin (and super_admin)
+//                              can write.
+//   shops/{shopId}/**        — every subcollection is fully readable and
+//                              writable by any member of that shop. A
+//                              super_admin can also access any shop.
+//
+// Deploy from Firebase CLI:
+//   firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function myUserSafe() {
+      // Safe variant that returns null instead of throwing if the doc
+      // doesn't exist yet (edge case: right after signup, before the
+      // users/{uid} doc has been created).
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? myUser()
+        : null;
+    }
+
+    function myRole() {
+      let u = myUserSafe();
+      return u == null ? "" : (u.role == null ? "" : u.role);
+    }
+
+    function myShopId() {
+      let u = myUserSafe();
+      return u == null ? "" : (u.shopId == null ? "" : u.shopId);
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && myRole() == "super_admin";
+    }
+
+    function isShopAdminOf(shopId) {
+      return isSignedIn() && myRole() == "shop_admin" && myShopId() == shopId;
+    }
+
+    function isMemberOf(shopId) {
+      return isSignedIn()
+        && (myRole() == "shop_admin" || myRole() == "staff")
+        && myShopId() == shopId;
+    }
+
+    // ------------------------------------------------------------------
+    // users/{uid}
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      // A user may read/write their own doc; a super_admin may read/write
+      // anyone's doc (to run migrations and manage roles).
+      allow read, write: if isSignedIn()
+                        && (request.auth.uid == uid || isSuperAdmin());
+    }
+
+    // ------------------------------------------------------------------
+    // shopInvites/{key}
+    // ------------------------------------------------------------------
+    match /shopInvites/{key} {
+      // Signup needs to look up its own invite by email BEFORE the
+      // users/{uid} doc is created — so allow any signed-in user to read.
+      // Writes are limited to shop_admins (of the target shop) and
+      // super_admins. The invitee can also delete their own invite once
+      // consumed (identified by the email prefix, verified best-effort).
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                   && (isSuperAdmin() || (myRole() == "shop_admin"
+                        && request.resource.data.shopId == myShopId()));
+      allow update: if isSignedIn()
+                   && (isSuperAdmin() || (myRole() == "shop_admin"
+                        && resource.data.shopId == myShopId()));
+      allow delete: if isSignedIn()
+                   && (isSuperAdmin() || (myRole() == "shop_admin"
+                        && resource.data.shopId == myShopId())
+                        // The invitee themselves may consume the invite
+                        // during signup (email-key match).
+                        || resource.data.email == request.auth.token.email);
+    }
+
+    // ------------------------------------------------------------------
+    // shops/{shopId}
+    // ------------------------------------------------------------------
+    match /shops/{shopId} {
+      // Anyone signed in can attempt to create a new shop (that's how
+      // signup auto-provisions a fresh tenant) — but only when they are
+      // named as the owner in the create payload.
+      allow create: if isSignedIn()
+                   && request.resource.data.ownerUid == request.auth.uid;
+
+      // Reads: super_admin OR any current member of the shop.
+      allow read: if isSuperAdmin() || isMemberOf(shopId);
+
+      // Root-doc writes (name, status, plan): shop_admin of this shop or
+      // super_admin.
+      allow update, delete: if isSuperAdmin() || isShopAdminOf(shopId);
+
+      // ----------------------------------------------------------------
+      // shops/{shopId}/** — ALL tenant-scoped data lives here.
+      // ----------------------------------------------------------------
+      match /{document=**} {
+        allow read, write: if isSuperAdmin() || isMemberOf(shopId);
+      }
+    }
+  }
+}

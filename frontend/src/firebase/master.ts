@@ -6,9 +6,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDoc,
   getDocs,
   serverTimestamp,
@@ -20,6 +20,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import { localId } from "@/src/utils/localId";
 
 export type MasterCollection =
@@ -58,7 +59,7 @@ export async function listMaster(c: MasterCollection): Promise<MasterItem[]> {
     const list = await readLocal(c);
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
-  const snap = await getDocs(collection(db, c));
+  const snap = await getDocs(tenantCol(db, c));
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<MasterItem, "id">) }))
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
@@ -77,7 +78,7 @@ export async function createMaster(
     await writeLocal(c, list);
     return id;
   }
-  const ref = await addDoc(collection(db, c), stripUndefined({
+  const ref = await addDoc(tenantCol(db, c), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -100,7 +101,7 @@ export async function updateMaster(
     }
     return;
   }
-  await updateDoc(doc(db, c, id), stripUndefined({ ...data, updatedAt: serverTimestamp() }));
+  await updateDoc(tenantDoc(db, c, id), stripUndefined({ ...data, updatedAt: serverTimestamp() }));
 }
 
 export async function deleteMaster(c: MasterCollection, id: string): Promise<void> {
@@ -110,7 +111,7 @@ export async function deleteMaster(c: MasterCollection, id: string): Promise<voi
     await writeLocal(c, list.filter((x) => x.id !== id));
     return;
   }
-  await deleteDoc(doc(db, c, id));
+  await deleteDoc(tenantDoc(db, c, id));
 }
 
 // -------- Shop / GST / Invoice settings (single doc: settings/shop) --------
@@ -185,7 +186,7 @@ export async function getShopSettings(): Promise<ShopSettings> {
   // `getDocs(collection("settings"))` requires broader read permissions and
   // extra round-trips.
   try {
-    const snap = await getDoc(doc(db, "settings", "shop"));
+    const snap = await getDoc(tenantDoc(db, "settings", "shop"));
     if (!snap.exists()) return DEFAULT_SHOP;
     return { ...DEFAULT_SHOP, ...(snap.data() as ShopSettings) };
   } catch {
@@ -200,7 +201,7 @@ export async function saveShopSettings(data: ShopSettings): Promise<void> {
     return;
   }
   await setDoc(
-    doc(db, "settings", "shop"),
+    tenantDoc(db, "settings", "shop"),
     stripUndefined({ ...data, updatedAt: serverTimestamp() }),
     { merge: true },
   );

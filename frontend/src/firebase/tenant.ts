@@ -1,0 +1,92 @@
+// Active-shop context for the multi-tenant data layer.
+//
+// The Firestore layout is:
+//   shops/{shopId}/tyres/{id}
+//   shops/{shopId}/sales/{id}
+//   shops/{shopId}/customers/{id}
+//   shops/{shopId}/purchases/{id}
+//   shops/{shopId}/khata/{id}
+//   shops/{shopId}/stock_movements/{id}
+//   shops/{shopId}/vehicles/{id}
+//   shops/{shopId}/brands/{id}         (master data)
+//   shops/{shopId}/tyreModels/{id}
+//   shops/{shopId}/tyreSizes/{id}
+//   shops/{shopId}/vehicleCategories/{id}
+//   shops/{shopId}/suppliers/{id}
+//   shops/{shopId}/settings/shop
+//   shops/{shopId}/members/{uid}       (staff roster mirror)
+//   users/{uid}                        (global user profile — auth mirror)
+//   shopInvites/{emailKey}             (global pending staff invites)
+//   shops/{shopId}                     (shop root doc — subscription status, name, ...)
+//
+// The active shopId is set by AuthContext once the user is loaded:
+//   - shop_admin / staff  → their `users/{uid}.shopId`
+//   - super_admin         → null by default; can pick any shop via the
+//                           Super Admin panel (setActiveShopId).
+//
+// All firebase/*.ts helpers pull the current shopId from this module via
+// tenantCol()/tenantDoc(). Every write / read is therefore isolated to a
+// single tenant by construction — no `where("shopId","==",...)` filters
+// needed, and Firestore security rules can enforce the boundary as well.
+
+import {
+  collection,
+  doc,
+  type CollectionReference,
+  type DocumentReference,
+  type Firestore,
+} from "firebase/firestore";
+
+let activeShopId: string | null = null;
+const listeners = new Set<(id: string | null) => void>();
+
+export function setActiveShopId(id: string | null): void {
+  if (activeShopId === id) return;
+  activeShopId = id;
+  listeners.forEach((l) => {
+    try {
+      l(id);
+    } catch {
+      // isolated listener error must not break the setter
+    }
+  });
+}
+
+export function getActiveShopId(): string | null {
+  return activeShopId;
+}
+
+export function subscribeActiveShopId(cb: (id: string | null) => void): () => void {
+  listeners.add(cb);
+  cb(activeShopId);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+/** Throws if no active shop is set — call sites should only invoke tenant
+ *  helpers after the auth flow has resolved (or a super_admin picked a shop). */
+function requireShopId(): string {
+  if (!activeShopId) {
+    throw new Error(
+      "No active shop selected. Sign in as a Shop Admin or Staff, or pick a shop from the Super Admin panel.",
+    );
+  }
+  return activeShopId;
+}
+
+export function tenantCol(db: Firestore, ...path: string[]): CollectionReference {
+  const shopId = requireShopId();
+  return collection(db, "shops", shopId, ...path);
+}
+
+export function tenantDoc(db: Firestore, ...path: string[]): DocumentReference {
+  const shopId = requireShopId();
+  return doc(db, "shops", shopId, ...path);
+}
+
+/** Return a raw path segment for the current shop — useful for building
+ *  cross-shop queries only inside super-admin flows. */
+export function tenantPath(...suffix: string[]): string[] {
+  return ["shops", requireShopId(), ...suffix];
+}

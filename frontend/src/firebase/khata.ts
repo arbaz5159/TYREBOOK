@@ -5,9 +5,9 @@
 
 import {
   addDoc,
-  collection,
+
   deleteDoc,
-  doc,
+
   getDocs,
   query,
   serverTimestamp,
@@ -18,6 +18,7 @@ import { storage } from "@/src/utils/storage";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";
+import { tenantCol, tenantDoc } from "./tenant";
 import { localId } from "@/src/utils/localId";
 
 export type KhataDirection = "credit" | "payment"; // credit = shop gave, payment = customer paid
@@ -58,7 +59,7 @@ export async function listKhata(customerId?: string): Promise<KhataEntry[]> {
       .filter((e) => !customerId || e.customerId === customerId)
       .sort((a, b) => b.date - a.date);
   }
-  const col = collection(db, COLLECTION);
+  const col = tenantCol(db, COLLECTION);
   // Fetch un-ordered and sort locally so a fresh collection doesn't need any
   // composite index.
   const q = customerId
@@ -80,7 +81,7 @@ export async function addKhataEntry(data: Omit<KhataEntry, "id" | "createdAt">):
     await writeLocal(list);
     return id;
   }
-  const ref = await addDoc(collection(db, COLLECTION), stripUndefined({
+  const ref = await addDoc(tenantCol(db, COLLECTION), stripUndefined({
     ...data,
     createdAt: serverTimestamp(),
   }));
@@ -94,7 +95,7 @@ export async function deleteKhataEntry(id: string): Promise<void> {
     await writeLocal(list.filter((x) => x.id !== id));
     return;
   }
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(tenantDoc(db, COLLECTION, id));
 }
 
 export function balanceOf(entries: KhataEntry[]): number {

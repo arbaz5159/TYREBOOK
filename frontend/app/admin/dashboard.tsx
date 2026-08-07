@@ -109,7 +109,7 @@ export default function AdminDashboard() {
         byBrand[s.brand ?? "—"] = (byBrand[s.brand ?? "—"] ?? 0) + (s.totalValue ?? 0);
       const topBrand =
         Object.entries(byBrand).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
-      const ownerCount = users.filter((u) => u.role === "owner").length;
+      const ownerCount = users.filter((u) => u.role === "shop_admin").length;
       const staffCount = users.filter((u) => u.role === "staff").length;
       setK({
         totalStock,
@@ -135,7 +135,9 @@ export default function AdminDashboard() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (!user) return null; if (user.role !== "owner") return <Redirect href="/(tabs)/settings" />;
+  if (!user) return null;
+  if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
+  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
