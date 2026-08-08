@@ -36,6 +36,7 @@ import {
   type DocumentReference,
   type Firestore,
 } from "firebase/firestore";
+import { useEffect, useState } from "react";
 
 const WEB_STORAGE_KEY = "tyrebook.tenant.activeShopId";
 
@@ -102,10 +103,6 @@ export function subscribeActiveShopId(cb: (id: string | null) => void): () => vo
 // `users/{uid}.shopId` remains null by design — the env allow-list is the
 // only source of super_admin truth).
 export function useActiveShopId(): string | null {
-  // Imported lazily inside the function so this module keeps working
-  // when consumed from a non-React context (unit tests, node scripts).
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { useEffect, useState } = require("react") as typeof import("react");
   const [id, setId] = useState<string | null>(activeShopId);
   useEffect(() => subscribeActiveShopId(setId), []);
   return id;
