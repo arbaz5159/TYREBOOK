@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { EmptyState } from "@/src/components/EmptyState";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import {
   createMaster,
   deleteMaster,
@@ -61,7 +62,7 @@ export default function MasterEditor() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
   if (!validCollection) return <Redirect href="/admin" />;
   const col = validCollection;
   const meta = TITLES[col];

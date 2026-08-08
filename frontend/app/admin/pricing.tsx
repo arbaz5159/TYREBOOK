@@ -21,6 +21,7 @@ import { AppTextField } from "@/src/components/AppTextField";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { CUSTOMER_TYPES, type CustomerType } from "@/src/constants/inventory";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 import { getPricingConfig, type PricingConfig } from "@/src/utils/settings";
 import { storage } from "@/src/utils/storage";
@@ -64,7 +65,7 @@ export default function PricingManagement() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
 
   const onSave = async () => {
     setSaving(true);

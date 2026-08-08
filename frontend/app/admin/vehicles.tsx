@@ -17,6 +17,7 @@ import { ChipRow } from "@/src/components/ChipRow";
 import { EmptyState } from "@/src/components/EmptyState";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import { VEHICLE_CATEGORIES, type VehicleCategoryId, type VehicleModel } from "@/src/constants/inventory";
 import {
   createVehicle,
@@ -50,7 +51,7 @@ export default function VehiclesAdmin() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
 
   const submit = async () => {
     if (!name.trim()) return;

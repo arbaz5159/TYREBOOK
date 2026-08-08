@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import { exportBackup, importBackup } from "@/src/firebase/master";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -28,7 +29,7 @@ export default function BackupRestore() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
 
   const doExport = async () => {
     setBusy(true);

@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AdminBottomNav } from "@/src/components/AdminBottomNav";
 import { AdminHeader } from "@/src/components/AdminHeader";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import { listTyres } from "@/src/firebase/inventory";
 import { listPurchases } from "@/src/firebase/purchase";
 import { listSales, listCustomers } from "@/src/firebase/sales";
@@ -137,7 +138,7 @@ export default function AdminDashboard() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>

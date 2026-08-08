@@ -10,6 +10,7 @@
 // profit reports, delete bills, GST settings, backup, purchase entries.
 
 import { useAuth } from "@/src/context/AuthContext";
+import { useActiveShopId } from "@/src/firebase/tenant";
 
 export interface Permissions {
   loading: boolean;
@@ -37,12 +38,17 @@ export interface Permissions {
 
 export function usePermissions(): Permissions {
   const { user, authFired } = useAuth();
+  const activeShopId = useActiveShopId();
   const role = user?.role;
   const isSuperAdmin = role === "super_admin";
   const isShopAdmin = role === "shop_admin";
   const isStaff = role === "staff";
   const isOwner = isShopAdmin || isSuperAdmin;
-  const hasShop = Boolean(user?.shopId);
+  // `hasShop` is true when the current session has an addressable tenant:
+  //   - shop_admin / staff  → their bound `users/{uid}.shopId`
+  //   - super_admin         → an activeShopId set via "Enter this shop"
+  //                           from the Super Admin panel (impersonation)
+  const hasShop = Boolean(user?.shopId || activeShopId);
   return {
     // `loading` is true until Firebase Auth has actually fired at least
     // once. Screens gating on ownership MUST wait for this to flip false —

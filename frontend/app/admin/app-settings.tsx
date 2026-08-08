@@ -21,6 +21,7 @@ import { AppTextField } from "@/src/components/AppTextField";
 import { ChipRow } from "@/src/components/ChipRow";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { useAuth } from "@/src/context/AuthContext";
+import { getActiveShopId } from "@/src/firebase/tenant";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 import {
   DEFAULT_APP_SETTINGS,
@@ -55,7 +56,7 @@ export default function AppSettingsScreen() {
 
   if (!user) return null;
   if (user.role === "staff") return <Redirect href="/(tabs)/settings" />;
-  if (user.role === "super_admin" && !user.shopId) return <Redirect href="/super-admin" />;
+  if (user.role === "super_admin" && !getActiveShopId()) return <Redirect href="/super-admin" />;
 
   const onSave = async () => {
     setSaving(true);
