@@ -96,6 +96,21 @@ export function subscribeActiveShopId(cb: (id: string | null) => void): () => vo
   };
 }
 
+// React hook: re-renders whenever the active shop id changes. Used by the
+// tabs layout + Dashboard banner so a Super Admin who taps "Enter this
+// shop" is admitted into the tabs the moment activeShopId is set (their
+// `users/{uid}.shopId` remains null by design — the env allow-list is the
+// only source of super_admin truth).
+export function useActiveShopId(): string | null {
+  // Imported lazily inside the function so this module keeps working
+  // when consumed from a non-React context (unit tests, node scripts).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { useEffect, useState } = require("react") as typeof import("react");
+  const [id, setId] = useState<string | null>(activeShopId);
+  useEffect(() => subscribeActiveShopId(setId), []);
+  return id;
+}
+
 /** Throws if no active shop is set — call sites should only invoke tenant
  *  helpers after the auth flow has resolved (or a super_admin picked a shop). */
 function requireShopId(): string {

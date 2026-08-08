@@ -114,6 +114,16 @@ export default function SuperAdminShopDetail() {
 
   const enterShop = () => {
     if (!shop) return;
+    // Set the impersonation context and land on the full Shop Admin UX
+    // (Dashboard → Inventory → Sales → Reports → Settings tabs). The
+    // "Return to Super Admin" banner at the top of the Dashboard lets
+    // the super_admin exit the impersonation.
+    setActiveShopId(shop.id);
+    router.push("/(tabs)/dashboard");
+  };
+
+  const openAdminPanel = () => {
+    if (!shop) return;
     setActiveShopId(shop.id);
     router.push("/admin");
   };
@@ -145,9 +155,18 @@ export default function SuperAdminShopDetail() {
             </View>
 
             <PrimaryButton
-              label="Enter this shop"
+              label="Enter this shop (full app)"
               onPress={enterShop}
               testID="super-enter-shop"
+            />
+
+            <View style={{ height: spacing.sm }} />
+
+            <PrimaryButton
+              label="Open Owner Admin Panel"
+              variant="ghost"
+              onPress={openAdminPanel}
+              testID="super-open-admin"
             />
 
             <View style={{ height: spacing.md }} />

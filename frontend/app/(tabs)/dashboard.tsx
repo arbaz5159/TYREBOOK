@@ -16,6 +16,8 @@ import { usePermissions } from "@/src/hooks/usePermissions";
 import { listPurchases } from "@/src/firebase/purchase";
 import { listSales, listCustomers } from "@/src/firebase/sales";
 import { listTyres } from "@/src/firebase/inventory";
+import { getShop, type Shop } from "@/src/firebase/shops";
+import { setActiveShopId, useActiveShopId } from "@/src/firebase/tenant";
 import { getAppSettings } from "@/src/utils/settings";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
 
@@ -72,8 +74,25 @@ export default function Dashboard() {
   const router = useRouter();
   const { user } = useAuth();
   const perms = usePermissions();
+  const activeShopId = useActiveShopId();
   const [stats, setStats] = useState<Stats>(ZERO);
   const [refreshing, setRefreshing] = useState(false);
+  const [impersonatedShop, setImpersonatedShop] = useState<Shop | null>(null);
+
+  // Load the current shop info when the Super Admin is impersonating a
+  // tenant so we can show the "You are viewing … · Return to Super
+  // Admin" banner. For Shop Admin / Staff this is a no-op.
+  const loadImpersonatedShop = useCallback(async () => {
+    if (user?.role === "super_admin" && activeShopId) {
+      try {
+        setImpersonatedShop(await getShop(activeShopId));
+      } catch {
+        setImpersonatedShop(null);
+      }
+    } else {
+      setImpersonatedShop(null);
+    }
+  }, [user?.role, activeShopId]);
 
   const load = useCallback(async () => {
     const [purchases, sales, tyres, customers, appSettings] = await Promise.all([
@@ -140,7 +159,8 @@ export default function Dashboard() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load]),
+      loadImpersonatedShop();
+    }, [load, loadImpersonatedShop]),
   );
 
   const onRefresh = async () => {
@@ -172,6 +192,32 @@ export default function Dashboard() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        {/* Super Admin impersonation banner — visible ONLY when a
+            super_admin has picked a shop via "Enter this shop" in the
+            Super Admin panel. Gives them a one-tap exit back to the
+            platform view so they don't lose context. */}
+        {user?.role === "super_admin" && impersonatedShop ? (
+          <TouchableOpacity
+            style={styles.impersonateBanner}
+            onPress={() => {
+              setActiveShopId(null);
+              router.replace("/super-admin");
+            }}
+            testID="super-return-banner"
+          >
+            <MaterialCommunityIcons name="shield-star-outline" size={20} color="#FFFFFF" />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text style={styles.impersonateTitle} numberOfLines={1}>
+                Viewing “{impersonatedShop.name}”
+              </Text>
+              <Text style={styles.impersonateSub} numberOfLines={1}>
+                Tap to return to Super Admin panel
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="close" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        ) : null}
+
         {/* Hero KPI: Today's Sales */}
         <View style={styles.hero} testID="hero-todays-sales">
           <View style={styles.heroTop}>
@@ -480,6 +526,24 @@ function QuickAction({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.surface },
+  impersonateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0F172A",
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+  },
+  impersonateTitle: {
+    color: "#FFFFFF",
+    fontSize: fontSize.sm,
+    fontWeight: "700",
+  },
+  impersonateSub: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    marginTop: 2,
+  },
   header: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,

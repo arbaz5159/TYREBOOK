@@ -116,6 +116,13 @@ export default function SuperAdminHome() {
           </View>
           <TouchableOpacity
             style={styles.iconBtn}
+            onPress={() => router.push("/super-admin/users")}
+            testID="super-open-users"
+          >
+            <MaterialCommunityIcons name="account-search-outline" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { marginLeft: spacing.sm }]}
             onPress={async () => {
               await signOut();
               router.replace("/(auth)/login");
