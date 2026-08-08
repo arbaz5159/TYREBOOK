@@ -11,6 +11,7 @@ import {
 
   getDoc,
   getDocs,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -211,6 +212,14 @@ export async function saveShopSettings(data: ShopSettings): Promise<void> {
 // Reserves the CURRENT `nextInvoiceNumber` (or `nextKachaNumber`) for the caller,
 // then advances the stored counter so the next bill gets a fresh number.
 // Returns the fully formatted number "<PREFIX>-<PADDED_SEQ>".
+//
+// TRANSACTIONAL SAFETY (production-critical):
+//   Two sales tapping "Save" at the same moment MUST NOT be able to
+//   receive the same invoice number. We therefore read + increment +
+//   write the settings/shop document inside a single Firestore
+//   `runTransaction`. If two clients race, exactly one commits first;
+//   the loser's transaction body is automatically re-run against the
+//   updated state and produces the *next* sequence number.
 
 function padSeq(seq: string, width: number): string {
   const digits = seq.replace(/[^\d]/g, "") || "1";
@@ -220,19 +229,68 @@ function padSeq(seq: string, width: number): string {
 export async function reserveInvoiceNumber(
   kind: "Tax Invoice" | "Kacha Bill",
 ): Promise<{ number: string; shop: ShopSettings }> {
-  const shop = await getShopSettings();
   const isKacha = kind === "Kacha Bill";
-  const prefix = (isKacha ? shop.kachaPrefix : shop.invoicePrefix) || (isKacha ? "CM" : "TB");
-  const rawSeq = (isKacha ? shop.nextKachaNumber : shop.nextInvoiceNumber) || "0001";
-  const width = Math.max(rawSeq.length, 4);
-  const currentSeq = padSeq(rawSeq, width);
-  const number = `${prefix}-${currentSeq}`;
-  const nextSeq = padSeq(String((parseInt(currentSeq, 10) || 0) + 1), width);
-  const nextShop: ShopSettings = isKacha
-    ? { ...shop, nextKachaNumber: nextSeq }
-    : { ...shop, nextInvoiceNumber: nextSeq };
-  await saveShopSettings(nextShop);
-  return { number, shop: nextShop };
+  const db = getDb();
+
+  // Local (Firebase-not-configured) fallback. There is no concurrency
+  // concern here because a single JS runtime is executing sequentially.
+  if (!db) {
+    const shop = await getShopSettings();
+    const prefix = (isKacha ? shop.kachaPrefix : shop.invoicePrefix) || (isKacha ? "CM" : "TB");
+    const rawSeq = (isKacha ? shop.nextKachaNumber : shop.nextInvoiceNumber) || "0001";
+    const width = Math.max(rawSeq.length, 4);
+    const currentSeq = padSeq(rawSeq, width);
+    const number = `${prefix}-${currentSeq}`;
+    const nextSeq = padSeq(String((parseInt(currentSeq, 10) || 0) + 1), width);
+    const nextShop: ShopSettings = isKacha
+      ? { ...shop, nextKachaNumber: nextSeq }
+      : { ...shop, nextInvoiceNumber: nextSeq };
+    await saveShopSettings(nextShop);
+    return { number, shop: nextShop };
+  }
+
+  // Firestore path — transactional read-modify-write on the tenant's
+  // settings/shop doc.
+  const ref = tenantDoc(db, "settings", "shop");
+  const result = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const current: ShopSettings = snap.exists()
+      ? { ...DEFAULT_SHOP, ...(snap.data() as ShopSettings) }
+      : { ...DEFAULT_SHOP };
+
+    const prefix = (isKacha ? current.kachaPrefix : current.invoicePrefix) || (isKacha ? "CM" : "TB");
+    const rawSeq = (isKacha ? current.nextKachaNumber : current.nextInvoiceNumber) || "0001";
+    const width = Math.max(rawSeq.length, 4);
+    const currentSeq = padSeq(rawSeq, width);
+    const number = `${prefix}-${currentSeq}`;
+    const nextSeq = padSeq(String((parseInt(currentSeq, 10) || 0) + 1), width);
+
+    const patch: Partial<ShopSettings> & { updatedAt?: any } = isKacha
+      ? { nextKachaNumber: nextSeq }
+      : { nextInvoiceNumber: nextSeq };
+
+    // `set(..., { merge: true })` inside a transaction is atomic. If the
+    // doc doesn't exist yet we still need to seed the base fields so the
+    // next call finds the counter.
+    if (snap.exists()) {
+      tx.update(ref, stripUndefined({ ...patch, updatedAt: serverTimestamp() }));
+    } else {
+      tx.set(
+        ref,
+        stripUndefined({
+          ...current,
+          ...patch,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    }
+
+    const nextShop: ShopSettings = { ...current, ...patch } as ShopSettings;
+    return { number, shop: nextShop };
+  });
+
+  return result;
 }
 
 // -------- Backup / Restore (JSON dump of all local + Firestore data) --------

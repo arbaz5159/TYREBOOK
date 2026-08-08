@@ -6,10 +6,12 @@ import {
   addDoc,
 
   deleteDoc,
+  doc,
 
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   where,
@@ -180,7 +182,12 @@ export async function createSale(
   const subtotal = data.quantity * data.sellingPrice;
   const totalValue = +(subtotal + (subtotal * data.gstPercent) / 100).toFixed(2);
 
-  // Locate the matching tyre and decrement.
+  // Locate the matching tyre BEFORE the transaction so we know which
+  // tyre doc to include in the read set. Firestore client SDK
+  // transactions do not support queries — only single-doc reads — so
+  // this look-up-by-attributes step happens outside. The authoritative
+  // stock number is re-read inside the transaction against tyreRef and
+  // that is what drives the decrement.
   const tyres = await listTyres(data.categoryId);
   const tyre = tyres.find(
     (t) =>
@@ -189,16 +196,7 @@ export async function createSale(
       t.size.toLowerCase() === data.size.toLowerCase(),
   );
 
-  let linkedTyreId: string | undefined;
-  let warning: string | undefined;
-  if (tyre) {
-    const newStock = (tyre.currentStock ?? 0) - data.quantity;
-    if (newStock < 0) warning = `Selling ${data.quantity} but only ${tyre.currentStock} in stock.`;
-    await updateTyre(tyre.id, { currentStock: Math.max(0, newStock) });
-    linkedTyreId = tyre.id;
-  } else {
-    warning = "Matching tyre not found in inventory. Stock was NOT reduced.";
-  }
+  const linkedTyreId: string | undefined = tyre?.id;
 
   const payload: Omit<Sale, "id"> = {
     ...data,
@@ -207,21 +205,76 @@ export async function createSale(
     createdAt: Date.now(),
   };
 
+  // Customer upsert stays outside the transaction — customer state is
+  // an aggregate cache; it is safe to eventually-consistent-update and
+  // is not part of the stock-safety invariant the user asked us to
+  // protect.
   await upsertCustomer(payload);
 
   const db = getDb();
   if (!db) {
+    // Local (Firebase-not-configured) fallback keeps the original
+    // sequential behaviour. Single JS runtime → no concurrency issue.
+    let warning: string | undefined;
+    if (tyre) {
+      const newStock = (tyre.currentStock ?? 0) - data.quantity;
+      if (newStock < 0) warning = `Selling ${data.quantity} but only ${tyre.currentStock} in stock.`;
+      await updateTyre(tyre.id, { currentStock: Math.max(0, newStock) });
+    } else {
+      warning = "Matching tyre not found in inventory. Stock was NOT reduced.";
+    }
     const list = await readLocalSales();
     const id = localId();
     list.push({ ...payload, id });
     await writeLocalSales(list);
     return { id, warning };
   }
-  const ref = await addDoc(tenantCol(db, SALES), stripUndefined({
-    ...payload,
-    createdAt: serverTimestamp(),
-  }));
-  return { id: ref.id, warning };
+
+  // TRANSACTIONAL SAFETY (production-critical):
+  //   Two sales tapping "Save" for the same tyre at the same moment MUST
+  //   NOT be able to both decrement from the same pre-race stock reading.
+  //   We wrap the tyre-stock read/decrement AND the sale-doc write in a
+  //   single Firestore runTransaction. If two clients race, exactly one
+  //   commits first; the loser's transaction body is automatically re-run
+  //   against the newer stock value and decrements from THAT.
+  //
+  //   Overshoot policy is preserved: if the resulting stock would go
+  //   negative, we clamp to 0 and return a `warning` — same behaviour as
+  //   the previous non-transactional implementation, so business logic
+  //   is unchanged.
+  const saleRef = doc(tenantCol(db, SALES));
+  const tyreRef = tyre ? tenantDoc(db, "tyres", tyre.id) : null;
+
+  const warning = await runTransaction(db, async (tx) => {
+    let localWarning: string | undefined;
+    if (tyreRef && tyre) {
+      const snap = await tx.get(tyreRef);
+      const authoritativeStock: number = snap.exists()
+        ? Number((snap.data() as any)?.currentStock ?? 0)
+        : Number(tyre.currentStock ?? 0);
+      const newStock = authoritativeStock - data.quantity;
+      if (newStock < 0) {
+        localWarning = `Selling ${data.quantity} but only ${authoritativeStock} in stock.`;
+      }
+      tx.update(tyreRef, stripUndefined({
+        currentStock: Math.max(0, newStock),
+        updatedAt: serverTimestamp(),
+      }));
+    } else {
+      localWarning = "Matching tyre not found in inventory. Stock was NOT reduced.";
+    }
+
+    tx.set(
+      saleRef,
+      stripUndefined({
+        ...payload,
+        createdAt: serverTimestamp(),
+      }),
+    );
+    return localWarning;
+  });
+
+  return { id: saleRef.id, warning };
 }
 
 export async function deleteSale(id: string): Promise<void> {
