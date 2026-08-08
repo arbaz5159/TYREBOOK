@@ -249,17 +249,24 @@ export async function createSale(
     let localWarning: string | undefined;
     if (tyreRef && tyre) {
       const snap = await tx.get(tyreRef);
-      const authoritativeStock: number = snap.exists()
-        ? Number((snap.data() as any)?.currentStock ?? 0)
-        : Number(tyre.currentStock ?? 0);
-      const newStock = authoritativeStock - data.quantity;
-      if (newStock < 0) {
-        localWarning = `Selling ${data.quantity} but only ${authoritativeStock} in stock.`;
+      // Defensive: if the tyre doc was deleted between the pre-transaction
+      // listTyres() scan and this transaction body, treat it as "not found"
+      // — same warning path as the never-found case. Sale still commits.
+      if (!snap.exists()) {
+        localWarning = "Matching tyre not found in inventory. Stock was NOT reduced.";
+      } else {
+        const authoritativeStock: number = Number(
+          (snap.data() as any)?.currentStock ?? 0,
+        );
+        const newStock = authoritativeStock - data.quantity;
+        if (newStock < 0) {
+          localWarning = `Selling ${data.quantity} but only ${authoritativeStock} in stock.`;
+        }
+        tx.update(tyreRef, stripUndefined({
+          currentStock: Math.max(0, newStock),
+          updatedAt: serverTimestamp(),
+        }));
       }
-      tx.update(tyreRef, stripUndefined({
-        currentStock: Math.max(0, newStock),
-        updatedAt: serverTimestamp(),
-      }));
     } else {
       localWarning = "Matching tyre not found in inventory. Stock was NOT reduced.";
     }
