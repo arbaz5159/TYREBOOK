@@ -2,26 +2,45 @@ rules_version = '2';
 
 // TyreBook multi-tenant Firestore security rules.
 //
-// Tenant model:
-//   users/{uid}              — global user profile. Read/write only by
-//                              the owner uid or a super_admin.
-//   shopInvites/{emailKey}   — global pending invites. Any signed-in user
-//                              can read (needed by signup flow to consume
-//                              their own invite) and shop_admins /
-//                              super_admins can create/revoke.
-//   shops/{shopId}           — tenant root doc. Members of that shop can
-//                              read; only the shop_admin (and super_admin)
-//                              can write.
-//   shops/{shopId}/**        — every subcollection is fully readable and
-//                              writable by any member of that shop. A
-//                              super_admin can also access any shop.
+// TENANT MODEL
+//   users/{uid}                — global user profile. Read/write only by
+//                                the owner uid or a super_admin.
+//                                Role / shopId / uid / email / active are
+//                                LOCKED for self-updates (privilege
+//                                escalation defence).
+//   shopInvites/{emailKey}     — global pending invites.
+//   shops/{shopId}             — tenant root doc. Members can read; only
+//                                Shop Admin (and Super Admin) may write
+//                                non-subscription profile fields.
+//   shops/{shopId}/<subcol>/*  — per-collection least-privilege rules
+//                                (see the per-collection blocks below).
+//                                There is NO `{document=**}` fallback:
+//                                any subcollection not listed here is
+//                                implicitly denied so future additions
+//                                cannot silently bypass RBAC.
 //
-// Deploy from Firebase CLI:
+// ROLES
+//   super_admin   Platform owner. Identified authoritatively by the auth
+//                 token email allow-list (see `superAdminEmails()`).
+//                 Bypasses tenant boundaries.
+//   shop_admin    Tenant owner. Full CRUD inside their own shop's
+//                 subcollections; may not modify subscription-controlled
+//                 fields on the tenant root doc.
+//   staff         Tenant employee. Least-privilege inside the shop —
+//                 CANNOT delete tyres, edit pricing, touch purchases,
+//                 change settings (except two invoice counters written
+//                 by the transactional invoice-number reservation), or
+//                 manage members / users / roles.
+//
+// DEPLOY (from a machine with Firebase CLI credentials):
 //   firebase deploy --only firestore:rules
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ============================================================
+    // Identity helpers
+    // ============================================================
     function isSignedIn() {
       return request.auth != null;
     }
@@ -31,9 +50,8 @@ service cloud.firestore {
     }
 
     function myUserSafe() {
-      // Safe variant that returns null instead of throwing if the doc
-      // doesn't exist yet (edge case: right after signup, before the
-      // users/{uid} doc has been created).
+      // Returns null instead of throwing if the doc doesn't exist yet
+      // (edge case: right after signup, before users/{uid} is written).
       return exists(/databases/$(database)/documents/users/$(request.auth.uid))
         ? myUser()
         : null;
@@ -49,12 +67,37 @@ service cloud.firestore {
       return u == null ? "" : (u.shopId == null ? "" : u.shopId);
     }
 
+    // Platform Super Admin allow-list. Keep this in sync with
+    // EXPO_PUBLIC_SUPER_ADMIN_EMAILS in frontend/.env. This is the
+    // AUTHORITATIVE identifier for a Super Admin at the rules layer —
+    // storing role="super_admin" in users/{uid} alone is not sufficient
+    // (see the users/{uid} CREATE / UPDATE gating below).
+    function superAdminEmails() {
+      return ['admin@tyrebook.com'];
+    }
+
+    function isSuperAdminByEmail() {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email in superAdminEmails();
+    }
+
     function isSuperAdmin() {
-      return isSignedIn() && myRole() == "super_admin";
+      // Defence-in-depth: EITHER the auth-token email is in the allow-list
+      // OR the users/{uid}.role says super_admin. Because the users/{uid}
+      // write rules below FORBID a normal user from setting role at all
+      // (create) and from changing role on update, the second branch can
+      // only be true if a legitimate Super Admin previously wrote it.
+      return isSuperAdminByEmail()
+        || (isSignedIn() && myRole() == "super_admin");
     }
 
     function isShopAdminOf(shopId) {
       return isSignedIn() && myRole() == "shop_admin" && myShopId() == shopId;
+    }
+
+    function isStaffOf(shopId) {
+      return isSignedIn() && myRole() == "staff" && myShopId() == shopId;
     }
 
     function isMemberOf(shopId) {
@@ -63,55 +106,120 @@ service cloud.firestore {
         && myShopId() == shopId;
     }
 
-    // ------------------------------------------------------------------
+    // ============================================================
     // users/{uid}
-    // ------------------------------------------------------------------
-    match /users/{uid} {
-      // A user may read/write their own doc; a super_admin may read/write
-      // anyone's doc (to run migrations and manage roles).
-      allow read, write: if isSignedIn()
-                        && (request.auth.uid == uid || isSuperAdmin());
+    // ============================================================
+    // PRIVILEGE-ESCALATION SAFETY:
+    //   1. CREATE   — a signed-in user may create ONLY their own
+    //                 users/{uid} doc. Role must be 'staff' or
+    //                 'shop_admin' (or 'super_admin' AND email in the
+    //                 allow-list). shop_admin further requires that
+    //                 shops/{shopId}.ownerUid matches the caller.
+    //   2. UPDATE   — self-updates MAY change name / lastLoginAt /
+    //                 other non-critical fields, but MUST NOT change
+    //                 role, shopId, uid, email, active. Only Super
+    //                 Admin can touch those.
+    //   3. DELETE   — Super Admin only.
+    //
+    // These rules are the reason a rogue client cannot self-elevate to
+    // super_admin (or migrate to another shop) by writing directly
+    // through the Firebase SDK.
+
+    function protectedUserFields() {
+      return ['role', 'shopId', 'uid', 'email', 'active'];
     }
 
-    // ------------------------------------------------------------------
+    function userUpdateChangesProtectedFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(protectedUserFields());
+    }
+
+    function isValidNewShopAdmin(uid) {
+      // The claimed shopId must exist AND be owned by this user. This
+      // covers the fresh-signup path (hydrateAppUser first creates the
+      // shop with ownerUid=user.uid and then writes users/{uid}).
+      let sid = request.resource.data.shopId;
+      return sid is string
+        && sid.size() > 0
+        && exists(/databases/$(database)/documents/shops/$(sid))
+        && get(/databases/$(database)/documents/shops/$(sid)).data.ownerUid == uid;
+    }
+
+    function isValidNewStaff() {
+      // The claimed shopId must at least exist. We can't compute the
+      // invite-key slug in rules, so this cannot fully verify that a
+      // matching shopInvites doc exists — the frontend enforces that.
+      // Even if bypassed, the staff role has no destructive powers
+      // (see per-collection rules); the residual risk is limited to a
+      // rogue user *joining* a shop they know the ID of, which is
+      // still lower risk than the previous blanket `write` rule.
+      let sid = request.resource.data.shopId;
+      return sid is string
+        && sid.size() > 0
+        && exists(/databases/$(database)/documents/shops/$(sid));
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn()
+                     && (request.auth.uid == uid || isSuperAdmin());
+
+      allow create: if isSignedIn()
+                       && request.auth.uid == uid
+                       && request.resource.data.uid == uid
+                       && (
+                            (request.resource.data.role == 'shop_admin'
+                             && isValidNewShopAdmin(uid))
+                         || (request.resource.data.role == 'staff'
+                             && isValidNewStaff())
+                         || (request.resource.data.role == 'super_admin'
+                             && isSuperAdminByEmail())
+                       );
+
+      allow update: if isSignedIn()
+                       && (
+                            isSuperAdmin()
+                         || (request.auth.uid == uid
+                             && !userUpdateChangesProtectedFields())
+                       );
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
     // shopInvites/{key}
-    // ------------------------------------------------------------------
+    // ============================================================
     match /shopInvites/{key} {
       // Signup needs to look up its own invite by email BEFORE the
-      // users/{uid} doc is created — so allow any signed-in user to read.
-      // Writes are limited to shop_admins (of the target shop) and
-      // super_admins. The invitee can also delete their own invite once
-      // consumed (identified by the email prefix, verified best-effort).
+      // users/{uid} doc is created — so allow any signed-in user to
+      // read. Writes are limited to shop_admins (of the target shop)
+      // and super_admins. The invitee can also delete their own
+      // invite once consumed (identified by the email prefix,
+      // verified best-effort).
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-                   && (isSuperAdmin() || (myRole() == "shop_admin"
-                        && request.resource.data.shopId == myShopId()));
+                       && (isSuperAdmin()
+                           || (myRole() == "shop_admin"
+                               && request.resource.data.shopId == myShopId()));
       allow update: if isSignedIn()
-                   && (isSuperAdmin() || (myRole() == "shop_admin"
-                        && resource.data.shopId == myShopId()));
+                       && (isSuperAdmin()
+                           || (myRole() == "shop_admin"
+                               && resource.data.shopId == myShopId()));
       allow delete: if isSignedIn()
-                   && (isSuperAdmin() || (myRole() == "shop_admin"
-                        && resource.data.shopId == myShopId())
-                        // The invitee themselves may consume the invite
-                        // during signup (email-key match).
-                        || resource.data.email == request.auth.token.email);
+                       && (isSuperAdmin()
+                           || (myRole() == "shop_admin"
+                               && resource.data.shopId == myShopId())
+                           || resource.data.email == request.auth.token.email);
     }
 
-    // ------------------------------------------------------------------
+    // ============================================================
     // shops/{shopId}
-    // ------------------------------------------------------------------
-    //
-    // Protected subscription / identity fields. Only Super Admin (or a
-    // trusted backend using the Firebase Admin SDK, which bypasses these
-    // rules entirely) may change these. Shop Admin can update the rest
-    // of the shop profile (name, notes, etc.).
-    //
-    // If the app adds new subscription-control fields in the future, add
-    // them to this list — never accept an unknown field name silently.
-    // ------------------------------------------------------------------
+    // ============================================================
+    // Protected subscription / identity fields on the shop root doc.
+    // Only Super Admin (or a trusted backend using the Firebase Admin
+    // SDK, which bypasses these rules entirely) may change these.
     function protectedShopFields() {
       return [
-        // Fields actually in use by the current Shop interface:
+        // Subscription state actually used by the current Shop type:
         "status",              // trial | active | expired | suspended
         "trialEndsAt",
         "planExpiresAt",
@@ -121,8 +229,8 @@ service cloud.firestore {
         "ownerEmail",
         "createdAt",
         "isLegacyMigrationTarget",
-        // Reserved names for future subscription/billing controls so a
-        // client that starts writing them cannot bypass this rule:
+        // Reserved names for future subscription/billing controls so
+        // a client that starts writing them cannot bypass this rule:
         "subscriptionStatus",
         "plan",
         "subscriptionEndsAt",
@@ -133,10 +241,10 @@ service cloud.firestore {
     }
 
     function shopAdminUpdateSafe(shopId) {
-      // Shop Admin may only update a shop root doc when the SET of keys
-      // touched by this update does NOT intersect the protected list.
-      // `affectedKeys()` returns every key that differs between the new
-      // and old document — added, changed, or removed.
+      // Shop Admin may only update the tenant root doc when the SET of
+      // keys touched by this update does NOT intersect the protected
+      // list. `affectedKeys()` returns every key that differs between
+      // the new and old document — added, changed, or removed.
       return isShopAdminOf(shopId)
         && !request.resource.data.diff(resource.data)
               .affectedKeys()
@@ -144,31 +252,163 @@ service cloud.firestore {
     }
 
     match /shops/{shopId} {
-      // Anyone signed in can attempt to create a new shop (that's how
-      // signup auto-provisions a fresh tenant) — but only when they are
-      // named as the owner in the create payload.
+      // Anyone signed in can attempt to create a new shop (auto-
+      // provisioning during signup) — but only when they are named as
+      // the owner in the create payload.
       allow create: if isSignedIn()
-                   && request.resource.data.ownerUid == request.auth.uid;
+                       && request.resource.data.ownerUid == request.auth.uid;
 
-      // Reads: super_admin OR any current member of the shop.
+      // Reads: Super Admin OR any current member of the shop.
       allow read: if isSuperAdmin() || isMemberOf(shopId);
 
-      // Updates: Super Admin can touch anything (subscription lifecycle,
-      // suspension, etc.). Shop Admin may only update non-protected
-      // profile fields (name, phone, address, gstin, notes, invoice
-      // prefix, etc.). Staff can never update the shop root doc.
+      // Updates: Super Admin can touch anything (subscription
+      // lifecycle, suspension, etc.). Shop Admin may only update
+      // non-protected profile fields (name, phone, address, gstin,
+      // notes, invoice prefix, etc.). Staff can never update the
+      // shop root doc.
       allow update: if isSuperAdmin() || shopAdminUpdateSafe(shopId);
 
-      // Deletion is strictly Super Admin — a Shop Admin must never be
-      // able to remove their own tenant root doc.
+      // Deletion is strictly Super Admin.
       allow delete: if isSuperAdmin();
 
-      // ----------------------------------------------------------------
-      // shops/{shopId}/** — ALL tenant-scoped data lives here.
-      // ----------------------------------------------------------------
-      match /{document=**} {
-        allow read, write: if isSuperAdmin() || isMemberOf(shopId);
+      // ============================================================
+      // TENANT SUBCOLLECTIONS — least-privilege per-collection rules
+      // ============================================================
+
+      // --- Inventory: tyres ---------------------------------------
+      // Staff may adjust `currentStock` (needed by the transactional
+      // sale stock deduction and Maal Aaya/Gaya movements) but NOT
+      // edit any other field (pricing, brand, size, rack, ...). Only
+      // Shop Admin can create / delete tyres or edit pricing.
+      match /tyres/{tyreId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create, delete: if isSuperAdmin() || isShopAdminOf(shopId);
+        allow update: if isSuperAdmin()
+                        || isShopAdminOf(shopId)
+                        || (isStaffOf(shopId)
+                            && request.resource.data.diff(resource.data)
+                                 .affectedKeys()
+                                 .hasOnly(['currentStock', 'updatedAt']));
       }
+
+      // --- Billing: sales -----------------------------------------
+      // Staff CAN create and edit sales inside their own shop. Only
+      // Shop Admin (or Super Admin) can delete a sale — deletion is
+      // a sensitive audit event.
+      match /sales/{saleId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create, update: if isSuperAdmin() || isMemberOf(shopId);
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Customers ----------------------------------------------
+      match /customers/{customerId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create, update: if isSuperAdmin() || isMemberOf(shopId);
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Vehicles (customer vehicle registry) -------------------
+      match /vehicles/{vehicleId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create, update: if isSuperAdmin() || isMemberOf(shopId);
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Khata (credit ledger) ----------------------------------
+      match /khata/{khataId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create, update: if isSuperAdmin() || isMemberOf(shopId);
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Stock movements (append-only log) ----------------------
+      match /stock_movements/{movementId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create: if isSuperAdmin() || isMemberOf(shopId);
+        allow update, delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Purchases (Shop Admin only) ----------------------------
+      // Purchases move money and adjust inventory pricing — Staff
+      // must never touch this collection in any way.
+      match /purchases/{purchaseId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Settings -----------------------------------------------
+      // Shop Admin owns all settings. Staff may ONLY update the two
+      // invoice-number counters (via the transactional
+      // reserveInvoiceNumber flow) — no other field. Staff is also
+      // permitted to CREATE settings/{doc} because the very first
+      // sale in a brand-new tenant triggers `tx.set(...)` on
+      // settings/shop when the doc is missing; this is tenant-scoped
+      // and cannot leak across shops.
+      match /settings/{settingId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create: if isSuperAdmin() || isMemberOf(shopId);
+        allow update: if isSuperAdmin()
+                        || isShopAdminOf(shopId)
+                        || (isStaffOf(shopId)
+                            && request.resource.data.diff(resource.data)
+                                 .affectedKeys()
+                                 .hasOnly(['nextInvoiceNumber',
+                                           'nextKachaNumber',
+                                           'updatedAt',
+                                           'createdAt']));
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Members (team roster mirror) ---------------------------
+      // Shop Admin manages the team. A user may write/refresh their
+      // OWN member doc on login (mirror of users/{uid}) but must not
+      // escalate their own role or impersonate someone else.
+      match /members/{memberUid} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow create: if isSuperAdmin()
+                        || isShopAdminOf(shopId)
+                        || (request.auth.uid == memberUid
+                            && isMemberOf(shopId));
+        allow update: if isSuperAdmin()
+                        || isShopAdminOf(shopId)
+                        || (request.auth.uid == memberUid
+                            && isMemberOf(shopId)
+                            && !request.resource.data.diff(resource.data)
+                                 .affectedKeys()
+                                 .hasAny(['role', 'uid', 'email']));
+        allow delete: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // --- Master data --------------------------------------------
+      // brands / tyreModels / tyreSizes / vehicleCategories /
+      // suppliers. Read for any member; mutations for Shop Admin
+      // only (Staff must never edit business master data).
+      match /brands/{docId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+      match /tyreModels/{docId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+      match /tyreSizes/{docId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+      match /vehicleCategories/{docId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+      match /suppliers/{docId} {
+        allow read: if isSuperAdmin() || isMemberOf(shopId);
+        allow write: if isSuperAdmin() || isShopAdminOf(shopId);
+      }
+
+      // NOTE: There is intentionally NO `match /{document=**}`
+      // fallback inside shops/{shopId}. Any subcollection not listed
+      // above is denied by default so future collections cannot
+      // silently bypass RBAC — extend this file explicitly.
     }
   }
 }
