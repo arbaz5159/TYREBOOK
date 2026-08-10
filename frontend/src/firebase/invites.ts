@@ -37,9 +37,31 @@ export interface ShopInvite {
 
 const COLLECTION = "shopInvites";
 
-/** Firestore doc ids cannot contain "/", "." or start with "__". Use a
- *  deterministic slug so lookup by email is a single getDoc. */
+/** Deterministic doc id derived from an email. The current format is
+ *  simply `email.trim().toLowerCase()` — Firestore doc ids DO allow "@"
+ *  and "." (the earlier slug format was overly conservative), and this
+ *  matches exactly what the Firestore Security Rules can compute from
+ *  `request.auth.token.email.trim().lower()`. That equivalence is the
+ *  linchpin of the rules-verifiable invite check: a rogue client can no
+ *  longer self-create a Staff `users/{uid}` doc unless a matching invite
+ *  doc actually exists at this exact path.
+ *
+ *  Fallback: any pre-existing invite documents stored under the legacy
+ *  regex-slug format continue to be readable via `legacyInviteKey()`
+ *  below, so no in-flight invites are stranded. Legacy invites are NOT
+ *  rules-verifiable — a Super Admin should re-issue them (or run the
+ *  optional migration helper) so new signups can pass the strict CREATE
+ *  rule on `users/{uid}`.
+ */
 export function inviteKey(email: string): string {
+  return (email || "").trim().toLowerCase();
+}
+
+/** Legacy key format used by TyreBook prior to the security-rules
+ *  hardening. Retained only so `findInviteByEmail` can gracefully fall
+ *  back to old invite docs during the transition window. Do NOT write
+ *  new invites to this key. */
+export function legacyInviteKey(email: string): string {
   return (email || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }
 
@@ -71,15 +93,25 @@ export async function inviteStaff(input: {
 export async function findInviteByEmail(email: string): Promise<ShopInvite | null> {
   const db = getDb();
   if (!db) return null;
-  const id = inviteKey(email);
-  if (!id) return null;
-  try {
-    const snap = await getDoc(doc(db, COLLECTION, id));
-    if (!snap.exists()) return null;
-    return { id: snap.id, ...(snap.data() as Omit<ShopInvite, "id">) };
-  } catch {
-    return null;
+  const primary = inviteKey(email);
+  if (!primary) return null;
+  // Try the new rules-verifiable key first. If it's missing, fall back to
+  // any doc still stored under the pre-hardening slug format so in-flight
+  // invitees aren't stranded during the migration window.
+  const candidates = [primary, legacyInviteKey(email)].filter(
+    (v, i, arr) => v && arr.indexOf(v) === i,
+  );
+  for (const id of candidates) {
+    try {
+      const snap = await getDoc(doc(db, COLLECTION, id));
+      if (snap.exists()) {
+        return { id: snap.id, ...(snap.data() as Omit<ShopInvite, "id">) };
+      }
+    } catch {
+      // continue to next candidate
+    }
   }
+  return null;
 }
 
 export async function listInvitesForShop(shopId: string): Promise<ShopInvite[]> {

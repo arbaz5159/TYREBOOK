@@ -113,8 +113,14 @@ service cloud.firestore {
     //   1. CREATE   — a signed-in user may create ONLY their own
     //                 users/{uid} doc. Role must be 'staff' or
     //                 'shop_admin' (or 'super_admin' AND email in the
-    //                 allow-list). shop_admin further requires that
+    //                 allow-list). `shop_admin` further requires that
     //                 shops/{shopId}.ownerUid matches the caller.
+    //                 `staff` further requires a matching invite doc at
+    //                 shopInvites/{authEmail.trim().lower()} whose
+    //                 shopId matches the claimed shopId and whose role
+    //                 is 'staff' — a rogue user CANNOT self-register
+    //                 as staff of any shop without a valid,
+    //                 server-issued invite.
     //   2. UPDATE   — self-updates MAY change name / lastLoginAt /
     //                 other non-critical fields, but MUST NOT change
     //                 role, shopId, uid, email, active. Only Super
@@ -146,17 +152,27 @@ service cloud.firestore {
     }
 
     function isValidNewStaff() {
-      // The claimed shopId must at least exist. We can't compute the
-      // invite-key slug in rules, so this cannot fully verify that a
-      // matching shopInvites doc exists — the frontend enforces that.
-      // Even if bypassed, the staff role has no destructive powers
-      // (see per-collection rules); the residual risk is limited to a
-      // rogue user *joining* a shop they know the ID of, which is
-      // still lower risk than the previous blanket `write` rule.
+      // Rules-verifiable invite check. The invite doc id must equal
+      // `request.auth.token.email.trim().lower()` — this exactly matches
+      // the JS `inviteKey()` helper in src/firebase/invites.ts. Firestore
+      // rules cannot execute regex replacement, so the invite key format
+      // was deliberately switched from a slug to the raw normalised
+      // email so both layers can compute the same value.
+      //
+      // A rogue signed-in user who does NOT have a matching invite doc
+      // cannot pass this check, even if they know the target shopId.
+      // Boolean short-circuiting on `&&` guarantees `.trim().lower()`
+      // never runs against a null email, and the `exists(...)` guard
+      // prevents `get(...)` from throwing on a missing invite.
       let sid = request.resource.data.shopId;
       return sid is string
         && sid.size() > 0
-        && exists(/databases/$(database)/documents/shops/$(sid));
+        && request.auth.token.email != null
+        && request.auth.token.email is string
+        && request.auth.token.email.size() > 0
+        && exists(/databases/$(database)/documents/shopInvites/$(request.auth.token.email.trim().lower()))
+        && get(/databases/$(database)/documents/shopInvites/$(request.auth.token.email.trim().lower())).data.shopId == sid
+        && get(/databases/$(database)/documents/shopInvites/$(request.auth.token.email.trim().lower())).data.role == 'staff';
     }
 
     match /users/{uid} {
