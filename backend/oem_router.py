@@ -40,6 +40,7 @@ from fastapi import APIRouter, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from oem_utils import (
+    BLANK_SENTINEL,
     COLLECTION,
     UNCATEGORISED_LABEL,
     normalize_size,
@@ -66,6 +67,11 @@ def build_router(db: AsyncIOMotorDatabase) -> APIRouter:
     def _exact(field: str, value: Optional[str]) -> Dict[str, Any]:
         if value is None or value == "":
             return {}
+        # Sentinel — the client wants rows whose source cell is blank.
+        # Match both `None` and `""` because the importer preserves the
+        # cell verbatim (post-`.strip()`) but Excel may deliver either.
+        if value == BLANK_SENTINEL:
+            return {"$or": [{field: None}, {field: ""}]}
         return {field: value}
 
     def _combine(*parts: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,19 +98,29 @@ def build_router(db: AsyncIOMotorDatabase) -> APIRouter:
     async def _distinct(field: str, filt: Dict[str, Any]) -> List[str]:
         raw = await coll.distinct(field, filt)
         # Normalise None → UNCATEGORISED_LABEL for the "category" field
-        # only. All other fields keep their original value.
+        # only. For every other field, preserve blank cells by emitting
+        # the BLANK_SENTINEL so the row remains reachable from the
+        # picker — the UI displays it as "(not specified)".
         if field == "category":
-            out = []
+            out: List[str] = []
             for v in raw:
                 if v is None or v == "":
                     out.append(UNCATEGORISED_LABEL)
                 else:
                     out.append(v)
         else:
-            out = [v for v in raw if v is not None and v != ""]
-        # Deduplicate + case-insensitive sort so the mobile dropdown
-        # feels natural. We keep the ORIGINAL casing from the data.
-        seen = {}
+            out = []
+            has_blank = False
+            for v in raw:
+                if v is None or v == "":
+                    has_blank = True
+                else:
+                    out.append(v)
+            if has_blank:
+                out.append(BLANK_SENTINEL)
+        # Deduplicate + case-insensitive sort. The BLANK_SENTINEL sorts
+        # to the top because it starts with '_'.
+        seen: Dict[str, str] = {}
         for v in out:
             key = v.lower()
             if key not in seen:

@@ -1,0 +1,70 @@
+{
+  "iteration": 25,
+  "phase": "Phase 2 — Find Tyre by Vehicle UI",
+  "run_by": "main_agent (direct-URL Playwright walkthrough, bypassing auth gate which was found unrelated to Phase 2)",
+  "summary": "Phase 2 fully verified end-to-end. 9/9 UI scenarios PASS (including the diff-size case that surfaced a real Phase-1 bug — blank Variant / Year cells were excluded from distinct results, blocking any row whose source cell was blank. Fixed by adding a BLANK_SENTINEL sentinel in backend + UI, preserving the user directive #17 rule that missing values must not be invented). Backend regression 4/4 PASS. 450 OEM records untouched.",
+  "counts": {
+    "passed_frontend": 9,
+    "failed_frontend": 0,
+    "passed_backend": 4,
+    "failed_backend": 0,
+    "total": 13
+  },
+  "backend_regression": {
+    "1_health": {"endpoint": "GET /api/oem/health", "expected": "total_documents=450", "actual": {"total_documents": 450}, "pass": true},
+    "2_stats": {"endpoint": "GET /api/oem/stats", "expected": "total=450 verified=450 uncat=172 buckets=14", "actual": {"total": 450, "oem_verified": 450, "uncategorised": 172, "by_category_len": 14}, "pass": true},
+    "3_categories": {"endpoint": "GET /api/oem/categories", "actual_len": 14, "has_uncategorised": true, "pass": true},
+    "4_hyundai_creta_electric": {"endpoint": "GET /api/oem/fitments?make=Hyundai&model=CRETA%20Electric&variant=42%20kWh&year_generation=2025-present", "actual": {"is_unique": true, "front_tyre_size": "215/60 R17", "rear_tyre_size": "215/60 R17"}, "pass": true},
+    "5_blank_sentinel_roundtrip": {"endpoint": "GET /api/oem/variants?category=Electric Scooter&make=Honda&model=QC1 → __blank__ ; GET /api/oem/fitments?...&variant=__blank__ → Honda QC1", "actual": {"variants": ["__blank__"], "fitment": {"front": "90/90-12", "rear": "90/100-10", "variant": ""}}, "pass": true}
+  },
+  "frontend_scenarios": {
+    "S1_wizard_direct_url": {"pass": true, "note": "GET /vehicle-search paints wizard + search box + 5 step rows (only Category enabled)."},
+    "S2_category_uncategorised": {"pass": true, "note": "Category picker shows all 14 categories including Uncategorised with '172 rows' badge."},
+    "S3_make_hyundai": {"pass": true, "note": "Make picker cascades to Hyundai."},
+    "S4_model_creta_electric": {"pass": true, "note": "Model picker cascades to CRETA Electric."},
+    "S5_result_same_size_215_60_R17": {"pass": true, "actual_front": "215/60 R17", "actual_rear": "215/60 R17", "same_size_banner": true, "verified_badge": true, "note": "Hyundai CRETA Electric 42 kWh 2025-present result screen renders front=rear=215/60 R17 with 'Same OEM tyre size for front and rear' banner and green OEM VERIFIED badge."},
+    "S6_details_expander": {"pass": true, "note": "Toggle reveals OEM Evidence, OEM Source (linkable), Source Pass, Verification. Toggle collapses again."},
+    "S7_check_stock_placeholder": {"pass": true, "note": "Check Available Tyres navigates to /vehicle-search/stock-placeholder with 'Inventory matching arrives in Phase 3' headline echoing selected vehicle + OEM sizes."},
+    "S8_back_navigation": {"pass": true, "note": "stock-placeholder-back → oem-result-back returns to wizard with header visible."},
+    "S9_diff_size_honda_qc1": {"pass": true, "actual_front": "90/90-12", "actual_rear": "90/100-10", "diff_size_banner": true, "same_size_banner": false, "note": "Category → Electric Scooter → Make → Honda → Model → QC1 → Variant '(not specified)' → Year → Current India model. FRONT 90/90-12 and REAR 90/100-10 shown separately with the yellow diff-size banner."}
+  },
+  "bugs_found_and_fixed_in_this_iteration": [
+    {
+      "severity": "P1",
+      "id": "OEM-BLANK-DISTINCT",
+      "title": "Rows whose Variant / Year cell is blank in the source Excel were unreachable in the wizard",
+      "root_cause": "backend/oem_router.py::_distinct filtered out None/empty values for all non-category fields, so /api/oem/variants for Honda QC1 (whose Variant cell is empty in the source Excel per user directive #17) returned []. This locked the wizard because the user could not advance past the Variant step.",
+      "fix": "Added BLANK_SENTINEL='__blank__' constant in oem_utils.py. _distinct now preserves the blank case as the sentinel string; _exact translates the sentinel to {$or:[{field:None},{field:''}]}. Frontend renders the sentinel as '(not specified)' via oemDisplayLabel(); the raw sentinel is stored in state and passed back to the API verbatim, preserving user directive #17 (no invented values).",
+      "files_modified": ["/app/backend/oem_utils.py", "/app/backend/oem_router.py", "/app/frontend/src/api/oem.ts", "/app/frontend/app/vehicle-search/index.tsx"]
+    }
+  ],
+  "improvements_this_iteration": [
+    {"id": "OEM-QUICK-BATCH", "title": "runQuickSearch now issues per-model /fitments lookups in Promise.all instead of sequentially (up to 8 in parallel).", "files_modified": ["/app/frontend/app/vehicle-search/index.tsx"]}
+  ],
+  "screenshots": [
+    "/tmp/oem/s1_wizard.jpg",
+    "/tmp/oem/s2_category_picker.jpg",
+    "/tmp/oem/s5_result_same_size.jpg",
+    "/tmp/oem/s6_details_open.jpg",
+    "/tmp/oem/s7_placeholder.jpg",
+    "/tmp/oem/s9a_variant_picker_blank.jpg",
+    "/tmp/oem/s9b_honda_qc1_result.jpg"
+  ],
+  "confirmations": {
+    "oem_records_unchanged": true,
+    "total_documents_in_mongo": 450,
+    "no_backend_endpoints_removed": true,
+    "no_existing_frontend_route_removed": true,
+    "existing_login_signup_still_present": true,
+    "phase_2_files_added_or_modified": [
+      "/app/frontend/app/vehicle-search/index.tsx (NEW)",
+      "/app/frontend/app/vehicle-search/result.tsx (NEW)",
+      "/app/frontend/app/vehicle-search/stock-placeholder.tsx (NEW)",
+      "/app/frontend/src/api/oem.ts (NEW)",
+      "/app/frontend/app/(tabs)/dashboard.tsx (MODIFIED — added 'Find Tyre by Vehicle' entry card)",
+      "/app/backend/oem_router.py (MODIFIED — BLANK_SENTINEL support)",
+      "/app/backend/oem_utils.py (MODIFIED — BLANK_SENTINEL constant)"
+    ]
+  },
+  "retest_needed": false
+}

@@ -343,6 +343,31 @@ export default function Dashboard() {
           />
         </View>
 
+        {/* Find Tyre by Vehicle — prominent OEM lookup entry point */}
+        <TouchableOpacity
+          style={styles.oemCard}
+          onPress={() => router.push("/vehicle-search")}
+          activeOpacity={0.9}
+          testID="home-find-tyre-by-vehicle"
+        >
+          <View style={styles.oemIconWrap}>
+            <MaterialCommunityIcons name="car-search-outline" size={30} color={colors.onBrandPrimary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.oemTitle}>Find Tyre by Vehicle</Text>
+            <Text style={styles.oemSub}>
+              Select your vehicle to find the correct OEM tyre size
+            </Text>
+            <View style={styles.oemBadgeRow}>
+              <View style={styles.oemBadge}>
+                <MaterialCommunityIcons name="check-decagram" size={12} color={colors.onSuccess} />
+                <Text style={styles.oemBadgeText}>450 OEM verified fitments</Text>
+              </View>
+            </View>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={colors.onBrandPrimary} />
+        </TouchableOpacity>
+
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actions}>
@@ -667,4 +692,56 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   fabText: { color: "#FFFFFF", fontWeight: "700", fontSize: fontSize.base },
+
+  // "Find Tyre by Vehicle" — Home entry point for the OEM lookup flow.
+  oemCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.brandPrimary,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.md,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  oemIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  oemTitle: {
+    color: colors.onBrandPrimary,
+    fontSize: fontSize.lg,
+    fontWeight: "800",
+  },
+  oemSub: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: fontSize.xs,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  oemBadgeRow: { flexDirection: "row", marginTop: spacing.sm },
+  oemBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  oemBadgeText: {
+    color: colors.onSuccess,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
 });

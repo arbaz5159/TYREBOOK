@@ -42,6 +42,15 @@ EXCEL_HEADERS = (
 # a stable placeholder so the record remains searchable.
 UNCATEGORISED_LABEL = "Uncategorised"
 
+# Sentinel emitted by the distinct-value endpoints (and accepted by the
+# filter endpoints) when a Variant / Year cell is blank in the source
+# Excel. The mobile UI translates this to the user-facing string
+# "(not specified)". A dedicated sentinel is required because bare
+# empty-string parameters cannot be distinguished from "no filter" in
+# a query-string, and per user directive #17 we must not invent values
+# to fill blank cells — those rows must still be reachable.
+BLANK_SENTINEL = "__blank__"
+
 
 def normalize_size(raw: Optional[str]) -> str:
     """Rules-safe tyre-size normaliser used ONLY for search matching.
