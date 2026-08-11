@@ -1,0 +1,37 @@
+{
+  "summary": "Phase 1 OEM 'Find Tyre by Vehicle' backend fully tested. 29/29 pytest cases PASSED (100%). All 5 user-critical invariants verified: total=450, all 450 rows are OEM VERIFIED, exactly 172 uncategorised rows, category breakdown matches the expected 14-bucket distribution exactly, and original tyre-size strings are preserved (215/60 R17 for Hyundai CRETA Electric 42 kWh returned verbatim). Every /api/oem/* endpoint listed in the review returned the expected shape and values. Search-by-size normalisation collapses '215/60 R17', '215/60-R17', '215/60r17' and the URL-encoded variant to the same normalized key and same count. Honda QC1 front!=rear case verified (90/100-10 hits the rear tyre only). Admin listing paginates, sorts, filters by category+make, and flags all 172 needs-review rows with _category_review_required=true and category=null. No write endpoints are exposed under /api/oem/* (POST/PUT/DELETE all return 405/404). Regression checks pass: /api/ returns TyreBook API, /api/status POST, /api/purchases/check-duplicate, /api/purchases/index, and /api/ocr/invoice schema validation all healthy.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_oem_fitments.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:250 - app.add_middleware(CORSMiddleware) is called AFTER app.include_router(). FastAPI still applies middleware globally at request time so this works, but conventionally middleware should be added before routes for clarity.",
+    "oem_router.py:279 - needs_review Query default is None but 'ge=1' style constraint absent; note that FastAPI parses 'true'/'false' strings correctly - verified working.",
+    "server.py:161 - `logger` is referenced inside scan_invoice but defined at module bottom (line 261). Works at call time due to late binding but is fragile - move logger init above the endpoints.",
+    "oem_router.py: search-by-size uses min_length=2 on the query param which is a bit lenient (accepts e.g. '  '), but the normalize_size() check catches empty results with 400. Acceptable."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py (created)",
+    "/app/backend/tests/test_oem_fitments.py (created)"
+  ],
+  "success_rate": {
+    "backend": "100% (29/29)",
+    "frontend": "n/a (skipped per request)"
+  },
+  "seed_data_creation": "None - used existing 450-row oem_vehicle_fitments collection. Regression test inserts one purchase-index doc (invoice_number=TEST_REGRESSION_INV_1, supplier=TEST_SUP) and one status-check doc (client_name=regtest) - both TEST_ prefixed and safely idempotent (upsert / demo).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend Phase 1 is GREEN. Test file /app/backend/tests/test_oem_fitments.py is the canonical regression suite - reuse it for Phase 2/3/4. Actual /api/oem/stats output captured in summary: total=450, oem_verified=450, uncategorised=172; buckets: Uncategorised=172, SUV=113, Motorcycle=58, Hatchback=36, Sedan=31, MPV=10, Electric Scooter=9, Scooter=7, SUV Coupe=5, Adventure Motorcycle=3, Electric Hatchback=2, Electric SUV=2, Dual-Sport Motorcycle=1, Crossover=1. When Phase 4 adds write endpoints, extend TestNoWriteEndpoints -> TestWriteEndpoints with auth. Public URL used: https://tire-inventory-app-1.preview.emergentagent.com. Frontend env key is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL).",
+  "rca_of_issue": "N/A - first iteration for this feature, all invariants and endpoint contracts passed on first run."
+}

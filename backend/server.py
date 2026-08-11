@@ -232,6 +232,20 @@ async def index_purchase(payload: IndexPurchase):
 
 
 app.include_router(api_router)
+
+# ---------- OEM fitment sub-router (Phase 1: read-only) ----------
+try:
+    from oem_router import build_router as _build_oem_router
+    _oem_router = _build_oem_router(db)
+    # mount under /api/oem/* so the existing Kubernetes ingress rule
+    # (which forwards /api → backend) covers it automatically.
+    app.include_router(_oem_router, prefix="/api")
+except Exception as _oem_err:  # noqa: BLE001
+    # Never fail the whole app if the OEM module has a config issue —
+    # keep the rest of the API alive and log for debugging.
+    logging.getLogger("uvicorn.error").exception(
+        "OEM router failed to mount: %s", _oem_err
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
