@@ -368,6 +368,18 @@ export default function Dashboard() {
           <MaterialCommunityIcons name="chevron-right" size={22} color={colors.onBrandPrimary} />
         </TouchableOpacity>
 
+        {/* Search by Tyre Size — secondary quick lookup */}
+        <TouchableOpacity
+          style={styles.sizeSearchLink}
+          onPress={() => router.push("/tyre-size-search")}
+          activeOpacity={0.85}
+          testID="home-search-by-tyre-size"
+        >
+          <MaterialCommunityIcons name="magnify" size={18} color={colors.brand} />
+          <Text style={styles.sizeSearchLinkText}>Search by Tyre Size</Text>
+          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.brand} />
+        </TouchableOpacity>
+
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actions}>
@@ -743,5 +755,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.3,
+  },
+
+  // Secondary "Search by Tyre Size" link right under the primary OEM card.
+  sizeSearchLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.brandTertiary,
+    borderRadius: radius.pill,
+    marginBottom: spacing.md,
+    minHeight: 40,
+    alignSelf: "flex-start",
+  },
+  sizeSearchLinkText: {
+    color: colors.brand,
+    fontWeight: "700",
+    fontSize: fontSize.sm,
   },
 });

@@ -138,12 +138,11 @@ export default function VehicleSearchResult() {
   };
 
   const onCheckStock = () => {
-    // Phase 3 will replace this with a real inventory lookup screen that
-    // filters `shops/{shopId}/tyres` by normalized size. For Phase 2 we
-    // hand off the OEM sizes via query params so the placeholder screen
-    // can display context, without inventing inventory.
+    // Phase 3: real inventory match. The `stock` screen loads the
+    // logged-in shop's `tyres` via listTyres() and matches by
+    // normalised size — no OEM database writes, no cross-tenant reads.
     router.push({
-      pathname: "/vehicle-search/stock-placeholder",
+      pathname: "/vehicle-search/stock",
       params: {
         front: fitment.front_tyre_size,
         rear: fitment.rear_tyre_size,
