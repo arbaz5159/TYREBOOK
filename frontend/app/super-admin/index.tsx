@@ -116,6 +116,13 @@ export default function SuperAdminHome() {
           </View>
           <TouchableOpacity
             style={styles.iconBtn}
+            onPress={() => router.push("/admin/oem")}
+            testID="super-open-oem"
+          >
+            <MaterialCommunityIcons name="database-outline" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { marginLeft: spacing.sm }]}
             onPress={() => router.push("/super-admin/users")}
             testID="super-open-users"
           >
