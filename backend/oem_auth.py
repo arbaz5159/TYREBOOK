@@ -151,13 +151,17 @@ def require_super_admin(request: Request) -> dict:
             status_code=403,
             detail="Super Admin privileges required for this operation.",
         )
-    if claims.get("email_verified") is False:
-        # Optional but recommended — Firebase Auth sets this. We do NOT
-        # hard-fail on `None` because some auth providers omit it.
-        raise HTTPException(
-            status_code=403,
-            detail="Email not verified in Firebase Auth.",
-        )
+    # Optional strict email-verified check. Firebase Auth sets
+    # `email_verified=False` for brand-new email/password accounts until
+    # they click the confirmation link, which is inconvenient for a
+    # closed super-admin allow-list. We keep the check off by default
+    # and let deployments opt in via `REQUIRE_SUPER_ADMIN_EMAIL_VERIFIED=1`.
+    if os.environ.get("REQUIRE_SUPER_ADMIN_EMAIL_VERIFIED", "").strip() in ("1", "true", "yes"):
+        if claims.get("email_verified") is False:
+            raise HTTPException(
+                status_code=403,
+                detail="Email not verified in Firebase Auth.",
+            )
     return {
         "uid": claims.get("user_id") or claims.get("sub"),
         "email": email,
