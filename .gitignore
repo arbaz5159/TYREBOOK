@@ -80,9 +80,12 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
-.env
-.env.*
-*.env
+# NOTE: We intentionally do NOT ignore `.env` / `.env.*` / `*.env`
+# — the Emergent deploy pipeline expects `backend/.env` and
+# `frontend/.env` to be present in the source tree so it can rewrite
+# them with production values during MANAGE_SECRETS. If you need to
+# keep a personal secret out of the repo, use `.env.local` and add a
+# specific ignore rule for it.
 credentials.json
 *.key
 .credentials
