@@ -95,13 +95,41 @@ export default function Dashboard() {
   }, [user?.role, activeShopId]);
 
   const load = useCallback(async () => {
-    const [purchases, sales, tyres, customers, appSettings] = await Promise.all([
-      listPurchases(),
-      listSales(),
-      listTyres(),
-      listCustomers(),
-      getAppSettings(),
-    ]);
+    let purchases: Awaited<ReturnType<typeof listPurchases>> = [];
+    let sales: Awaited<ReturnType<typeof listSales>> = [];
+    let tyres: Awaited<ReturnType<typeof listTyres>> = [];
+    let customers: Awaited<ReturnType<typeof listCustomers>> = [];
+    let appSettings: Awaited<ReturnType<typeof getAppSettings>>;
+    try {
+      // Per-call fallbacks: if the tenant sub-collection is empty OR the
+      // Firestore rules deny the read (e.g. right after signup before
+      // the deployed rules propagate), we still render the dashboard with
+      // zeroed KPIs instead of throwing an uncaught error.
+      const [pRes, sRes, tRes, cRes, aRes] = await Promise.allSettled([
+        listPurchases(),
+        listSales(),
+        listTyres(),
+        listCustomers(),
+        getAppSettings(),
+      ]);
+      if (pRes.status === "fulfilled") purchases = pRes.value;
+      else console.warn("[dashboard] listPurchases failed:", pRes.reason);
+      if (sRes.status === "fulfilled") sales = sRes.value;
+      else console.warn("[dashboard] listSales failed:", sRes.reason);
+      if (tRes.status === "fulfilled") tyres = tRes.value;
+      else console.warn("[dashboard] listTyres failed:", tRes.reason);
+      if (cRes.status === "fulfilled") customers = cRes.value;
+      else console.warn("[dashboard] listCustomers failed:", cRes.reason);
+      appSettings =
+        aRes.status === "fulfilled"
+          ? aRes.value
+          : ({} as Awaited<ReturnType<typeof getAppSettings>>);
+      if (aRes.status === "rejected")
+        console.warn("[dashboard] getAppSettings failed:", aRes.reason);
+    } catch (e) {
+      console.warn("[dashboard] load() unexpected error:", e);
+      appSettings = {} as Awaited<ReturnType<typeof getAppSettings>>;
+    }
     const lowStockDefault = appSettings.lowStockThreshold || LOW_STOCK_THRESHOLD_FALLBACK;
     const todayPurchase = purchases
       .filter((p) => isToday(p.date))

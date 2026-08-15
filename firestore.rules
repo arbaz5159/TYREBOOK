@@ -274,8 +274,31 @@ service cloud.firestore {
       allow create: if isSignedIn()
                        && request.resource.data.ownerUid == request.auth.uid;
 
-      // Reads: Super Admin OR any current member of the shop.
-      allow read: if isSuperAdmin() || isMemberOf(shopId);
+      // GET (single-doc read):
+      //   - Super Admin: any shop.
+      //   - Member: their own shop.
+      //   - Owner: the shop they created (identified by ownerUid on the
+      //     doc). This branch is what lets a freshly-signed-up
+      //     Shop Admin read their own shop root doc BEFORE their
+      //     users/{uid} row is written — the ordering during signup
+      //     is `createShop → upsertUserDoc → upsertMember`.
+      //   - Any signed-in user reading a NON-EXISTENT shop doc: this is
+      //     needed by `createShop()`'s slug-collision `getDoc` probe
+      //     before it writes a fresh shop. Because `resource == null`
+      //     there is nothing to leak — the reader only learns "this
+      //     slug is free", which is inherent to any create-if-not-
+      //     exists workflow.
+      allow get: if isSuperAdmin()
+                    || isMemberOf(shopId)
+                    || (isSignedIn() && resource == null)
+                    || (isSignedIn()
+                        && resource != null
+                        && resource.data.ownerUid == request.auth.uid);
+
+      // LIST (collection query): platform-wide enumeration is Super
+      // Admin only. Shop Admin / Staff never list `shops` — they only
+      // read their own root doc via `getShop(shopId)`.
+      allow list: if isSuperAdmin();
 
       // Updates: Super Admin can touch anything (subscription
       // lifecycle, suspension, etc.). Shop Admin may only update

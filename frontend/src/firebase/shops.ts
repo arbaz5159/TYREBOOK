@@ -71,7 +71,23 @@ export function isShopUsable(shop: Shop | null | undefined): boolean {
  * Create a new shop. Called from the signup flow when a fresh user is not
  * an invited staff / super_admin — they become the shop_admin of a new
  * tenant with a 14-day trial.
+ *
+ * Robustness notes:
+ *   * On a fresh signup the caller is signed in but is NOT yet a member of
+ *     ANY shop, so Firestore rules typically DENY reads of `shops/{slug}`
+ *     (which require member/super-admin). The slug-collision `getDoc`
+ *     below is therefore wrapped: if it throws "permission-denied" we
+ *     skip the collision check and fall back to a random-suffix id
+ *     (collision probability ~0 with 6 hex chars over ~10^9 shops).
+ *     This keeps the fresh-signup flow working even under strict rules.
+ *   * The create WRITE itself is always safe under the current rules —
+ *     `shops/{id}` allows create when `ownerUid == request.auth.uid`.
  */
+function isPermissionDenied(e: unknown): boolean {
+  const code = (e as { code?: string } | null)?.code ?? "";
+  return code === "permission-denied" || code === "firestore/permission-denied";
+}
+
 export async function createShop(input: {
   name: string;
   ownerUid: string;
@@ -80,16 +96,12 @@ export async function createShop(input: {
   const db = getDb();
   if (!db) throw new Error("Firestore not configured.");
 
-  // Prefer a human-readable slug derived from the shop name; fall back to
-  // an auto-generated id if the slug clashes.
   const base = slugify(input.name) || slugify(input.ownerEmail.split("@")[0]) || "shop";
-  const attempt = async (id: string): Promise<Shop | null> => {
-    const ref = doc(db, SHOPS_COLLECTION, id);
-    const snap = await getDoc(ref);
-    if (snap.exists()) return null;
+
+  const buildPayload = (id: string): Shop => {
     const now = Date.now();
     const trialEndsAt = now + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
-    const payload: Shop = {
+    return {
       id,
       name: input.name.trim(),
       ownerUid: input.ownerUid,
@@ -98,23 +110,60 @@ export async function createShop(input: {
       trialEndsAt,
       createdAt: now,
     };
+  };
+
+  // Attempt with slug pre-check. If we hit permission-denied on the
+  // slug-existence probe, we can't verify the slug is free — signal
+  // "PRECHECK_DENIED" to jump straight to a random-suffix id (which
+  // effectively cannot collide).
+  type AttemptResult =
+    | { kind: "created"; shop: Shop }
+    | { kind: "taken" }
+    | { kind: "precheck_denied" };
+
+  const tryWithPrecheck = async (id: string): Promise<AttemptResult> => {
+    const ref = doc(db, SHOPS_COLLECTION, id);
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists()) return { kind: "taken" };
+    } catch (e) {
+      if (isPermissionDenied(e)) return { kind: "precheck_denied" };
+      throw e;
+    }
+    const payload = buildPayload(id);
     await setDoc(
       ref,
       stripUndefined({ ...payload, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }),
     );
+    return { kind: "created", shop: payload };
+  };
+
+  // Blind-write path — used ONLY when pre-check is denied by rules. We
+  // pick a UUID-strength suffix so collision odds are negligible and we
+  // never overwrite an existing tenant.
+  const randSuffix = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+  const writeWithRandomId = async (): Promise<Shop> => {
+    const id = `${base}-${randSuffix()}`;
+    const payload = buildPayload(id);
+    await setDoc(
+      doc(db, SHOPS_COLLECTION, id),
+      stripUndefined({ ...payload, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+    );
     return payload;
   };
-  const first = await attempt(base);
-  if (first) return first;
+
+  const first = await tryWithPrecheck(base);
+  if (first.kind === "created") return first.shop;
+  if (first.kind === "precheck_denied") return writeWithRandomId();
+  // slug taken — try numeric suffixes.
   for (let i = 2; i < 20; i++) {
-    const alt = await attempt(`${base}-${i}`);
-    if (alt) return alt;
+    const alt = await tryWithPrecheck(`${base}-${i}`);
+    if (alt.kind === "created") return alt.shop;
+    if (alt.kind === "precheck_denied") return writeWithRandomId();
+    // taken — try next.
   }
-  // Fallback: random-suffix (unlikely to clash).
-  const rand = `${base}-${Math.random().toString(36).slice(2, 8)}`;
-  const created = await attempt(rand);
-  if (!created) throw new Error("Could not allocate a unique shop id.");
-  return created;
+  // All numeric-suffix slugs taken → last-resort random suffix.
+  return writeWithRandomId();
 }
 
 export async function getShop(shopId: string): Promise<Shop | null> {
