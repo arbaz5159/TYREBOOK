@@ -924,11 +924,20 @@ const styles = StyleSheet.create({
 
   modalWrap: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.overlay },
+  // NOTE: on native RN, a Modal-child View that only declares
+  // `maxHeight: "80%"` (no explicit `height` and no `flex`) does not
+  // expand to fill its `justifyContent: flex-end` parent, which means
+  // the inner `<FlatList>` (which needs a bounded parent) renders at
+  // zero height and the picker list appears "empty" on mobile even
+  // though options are loaded. Web fudges this via CSS block layout,
+  // which is why it works on preview.  Setting `height: "80%"` gives
+  // the sheet a concrete size on both platforms, and the sheet
+  // becomes a proper flex container for its children.
   sheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    maxHeight: "80%",
+    height: "80%",
     paddingBottom: spacing.md,
   },
   sheetHeader: {

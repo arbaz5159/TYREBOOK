@@ -620,7 +620,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    maxHeight: "75%",
+    // See vehicle-search/index.tsx for rationale — `maxHeight` alone
+    // collapses inner FlatList on native.
+    height: "75%",
     paddingBottom: spacing.md,
   },
   sheetHeader: {

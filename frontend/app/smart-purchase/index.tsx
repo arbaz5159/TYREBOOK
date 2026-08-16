@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import { File as FsFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { Redirect, useRouter } from "expo-router";
 import { useState } from "react";
@@ -119,20 +119,28 @@ export default function SmartPurchaseScanner() {
     const file = res.assets[0];
     setBusy("pdf");
     try {
-      // Read file as base64 (works for images; PDFs are also read but the OCR
-      // model handles them best when first page is rasterised. Since Expo has
-      // no easy rasteriser, we send the PDF bytes — gpt-4o-mini's vision
-      // endpoint won't process PDFs directly, so we recommend an image if it
-      // fails and fall back to PDF.)
-      const b64 = await FileSystem.readAsStringAsync(file.uri, {
-        encoding: "base64" as any,
-      });
-      const mime = file.mimeType ?? (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      if (mime === "application/pdf") {
-        setError("PDF detected. For best OCR results, please capture / upload the invoice as an image (JPG or PNG). PDF support requires a native converter step.");
-        setBusy(null);
-        return;
+      // expo-file-system v19 (SDK 54+) removed the top-level
+      // `readAsStringAsync` — the new API is the `File` class which
+      // exposes async `.base64()`. This works uniformly on iOS,
+      // Android, and Web.
+      let b64: string;
+      try {
+        b64 = await new FsFile(file.uri).base64();
+      } catch (readErr) {
+        // Fallback to the /legacy path so a partial SDK/library skew
+        // doesn't break the whole flow.
+        const legacy = await import("expo-file-system/legacy");
+        b64 = await legacy.readAsStringAsync(file.uri, {
+          encoding: "base64" as any,
+        });
+        void readErr;
       }
+      const mime = file.mimeType
+        ?? (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+      // The backend rasterises PDFs to PNG server-side (via PyMuPDF) so
+      // we can send the raw PDF bytes with `mime = application/pdf`.
+      // gpt-4o-mini vision only accepts images, but the backend handles
+      // the conversion transparently.
       await run(b64, mime, file.uri);
     } catch (e: any) {
       setError(e?.message ?? "Could not read file.");

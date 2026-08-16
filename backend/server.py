@@ -125,7 +125,14 @@ Rules:
 
 @api_router.post("/ocr/invoice")
 async def scan_invoice(payload: ScanInvoiceRequest):
-    """Send invoice image to vision LLM and return structured extraction."""
+    """Send invoice image to vision LLM and return structured extraction.
+
+    When the caller sends a PDF (mime `application/pdf`), we rasterize the
+    FIRST page to a PNG using PyMuPDF and OCR the image. Multi-page PDFs
+    are supported by extending the loop below, but Indian tyre-shop
+    invoices are almost always single-page — page 1 is the money-carrying
+    document.
+    """
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured on backend.")
@@ -133,6 +140,40 @@ async def scan_invoice(payload: ScanInvoiceRequest):
     b64 = payload.image_base64.split(",")[-1].strip()
     if not b64:
         raise HTTPException(status_code=400, detail="Empty image payload")
+
+    mime = (payload.mime_type or "image/jpeg").lower().split(";")[0].strip()
+
+    # ---- PDF → PNG rasterization ----
+    # gpt-4o-mini vision does NOT accept `application/pdf`, so we convert
+    # page 1 to a high-DPI PNG in-process. Uses PyMuPDF (fitz) which has
+    # zero system dependencies (no poppler needed).
+    if mime == "application/pdf":
+        try:
+            import fitz  # PyMuPDF
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(
+                status_code=500,
+                detail=f"Server missing PDF support: {e}. Install PyMuPDF.",
+            )
+        try:
+            pdf_bytes = base64.b64decode(b64)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"Invalid base64 PDF: {e}")
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            if doc.page_count == 0:
+                raise HTTPException(status_code=400, detail="PDF has no pages.")
+            page = doc.load_page(0)
+            # 2x DPI (~200) balances OCR fidelity with token cost.
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            png_bytes = pix.tobytes("png")
+            doc.close()
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"Could not render PDF: {e}")
+        b64 = base64.b64encode(png_bytes).decode("ascii")
+        mime = "image/png"
 
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
