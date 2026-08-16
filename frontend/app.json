@@ -23,7 +23,7 @@
         "backgroundColor": "#000F26"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.tireinventoryapp.k5wo00",
+      "package": "com.tireinventory.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
