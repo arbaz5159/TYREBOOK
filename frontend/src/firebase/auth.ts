@@ -18,9 +18,12 @@
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  RecaptchaVerifier,
   signInWithEmailAndPassword,
+  signInWithPhoneNumber as fbSignInWithPhoneNumber,
   signOut as fbSignOut,
   updateProfile,
+  type ConfirmationResult,
   type User,
 } from "firebase/auth";
 import {
@@ -177,7 +180,13 @@ async function upsertUserDoc(
     const base = stripUndefined({
       uid: user.uid,
       email: user.email ?? undefined,
-      name: data.name || user.displayName || (user.email ?? "").split("@")[0] || undefined,
+      phoneNumber: user.phoneNumber ?? undefined,
+      name:
+        data.name
+        || user.displayName
+        || (user.email ?? "").split("@")[0]
+        || (user.phoneNumber ?? "").replace(/^\+91/, "")
+        || undefined,
       role: data.role,
       shopId: data.shopId ?? undefined,
       lastLoginAt: serverTimestamp(),
@@ -394,6 +403,111 @@ export async function signOut(): Promise<void> {
   await storage.removeItem(SHOP_KEY);
   setActiveShopId(null);
 }
+
+// -----------------------------------------------------------------------------
+// Phone-number OTP login (Firebase Phone Auth)
+// -----------------------------------------------------------------------------
+// USAGE
+//   const otp = await sendOtp("+919812345678", { recaptchaContainerId: "recaptcha" });
+//   const user = await verifyOtp(otp, "123456");
+//
+// PLATFORM NOTES
+//   * Web (Expo Web): needs a <View nativeID="recaptcha"> or a <div id="recaptcha">
+//     mounted in the DOM. `RecaptchaVerifier` renders an invisible reCAPTCHA into
+//     that element. Nothing else is required.
+//   * Native iOS/Android via a real EAS build: Firebase JS SDK uses
+//     `signInWithPhoneNumber` with silent verification (SafetyNet on Android,
+//     silent APNs push on iOS). Works after the platform team has enabled the
+//     phone provider in Firebase Console AND the app is signed with the
+//     correct SHA-1 (Android) / bundle id + APNs key (iOS).
+//   * Expo Go: DOES NOT work — Expo Go's JS-only Firebase SDK cannot perform
+//     device attestation. Use Web preview or a dev/production build.
+//
+// This flow deliberately re-uses `hydrateAppUser`, so an OTP sign-in follows
+// exactly the same shop-provisioning / role-resolution path as the existing
+// email/password sign-up. Nothing about the multi-tenant model changes.
+
+export interface OtpTicket {
+  confirmation: ConfirmationResult;
+  phoneNumber: string;
+  sentAt: number;
+}
+
+const RECAPTCHA_STATE: { verifier: RecaptchaVerifier | null } = { verifier: null };
+
+function ensureRecaptcha(auth: ReturnType<typeof getFirebaseAuth>, containerId?: string): RecaptchaVerifier {
+  if (RECAPTCHA_STATE.verifier) return RECAPTCHA_STATE.verifier;
+  if (!auth) throw new Error("Firebase Auth not configured.");
+  // The RecaptchaVerifier constructor requires a DOM element on Web. On native
+  // Expo Go this branch will throw — we surface a clear message so the UI can
+  // explain the Expo Go limitation instead of crashing.
+  if (typeof document === "undefined") {
+    throw new Error(
+      "OTP login isn't available in Expo Go — please use the web preview or a real Android/iOS build to test OTP.",
+    );
+  }
+  const id = containerId ?? "tyrebook-recaptcha";
+  RECAPTCHA_STATE.verifier = new RecaptchaVerifier(auth, id, { size: "invisible" });
+  return RECAPTCHA_STATE.verifier;
+}
+
+/** Reset the reCAPTCHA verifier (call between resend attempts or on unmount). */
+export function resetRecaptcha(): void {
+  try {
+    RECAPTCHA_STATE.verifier?.clear();
+  } catch {
+    /* verifier may already be cleared by Firebase */
+  }
+  RECAPTCHA_STATE.verifier = null;
+}
+
+/** Normalise a raw mobile number into E.164 format for India (+91). */
+export function toE164India(raw: string): string {
+  const digits = raw.replace(/\D+/g, "");
+  // If the caller already prefixed 91, drop stray leading zero, keep as-is.
+  if (digits.startsWith("91") && digits.length >= 12) return `+${digits.slice(0, 12)}`;
+  // If it's a bare 10-digit Indian mobile, prefix +91.
+  if (digits.length === 10) return `+91${digits}`;
+  // Fallback: assume already E.164 minus the plus.
+  return `+${digits}`;
+}
+
+export function isValidIndianMobile(raw: string): boolean {
+  const digits = raw.replace(/\D+/g, "");
+  const local = digits.startsWith("91") ? digits.slice(2) : digits;
+  return /^[6-9]\d{9}$/.test(local);
+}
+
+export async function sendOtp(
+  rawPhone: string,
+  opts: { recaptchaContainerId?: string } = {},
+): Promise<OtpTicket> {
+  const auth = getFirebaseAuth();
+  if (!auth) throw new Error("Firebase Auth not configured.");
+  const phoneNumber = toE164India(rawPhone);
+  if (!isValidIndianMobile(rawPhone)) {
+    throw new Error("Please enter a valid 10-digit Indian mobile number.");
+  }
+  // Fresh verifier per session to avoid stale reCAPTCHA tokens.
+  resetRecaptcha();
+  const verifier = ensureRecaptcha(auth, opts.recaptchaContainerId);
+  const confirmation = await fbSignInWithPhoneNumber(auth, phoneNumber, verifier);
+  return { confirmation, phoneNumber, sentAt: Date.now() };
+}
+
+export async function verifyOtp(ticket: OtpTicket, code: string): Promise<AppUser> {
+  const trimmed = (code || "").replace(/\D+/g, "");
+  if (trimmed.length !== 6) {
+    throw new Error("Please enter the 6-digit code you received.");
+  }
+  const cred = await ticket.confirmation.confirm(trimmed);
+  // Phone-auth users don't have an email yet — the existing hydrate flow
+  // handles the null-email path (falls through to the fresh Shop Admin
+  // branch and provisions a new tenant). Existing invited-staff / super-admin
+  // logic stays intact because both key off email (which is null here).
+  return hydrateAppUser(cred.user);
+}
+
 
 export function subscribeAuth(cb: (user: AppUser | null) => void): () => void {
   const auth = getFirebaseAuth();

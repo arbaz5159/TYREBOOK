@@ -1,37 +1,50 @@
-// Material Design 3 tokens for TyreBook (Expressive Light, teal palette).
+// Material Design 3 tokens for TyreBook.
 // Referenced by every screen — do NOT hard-code colors elsewhere.
+//
+// Palette derived from the TYREBOOK splash reference (Aug 2026 refresh):
+//   deep navy blue  (#0B2A63) — logo shell, top nav, on-brand text on light bg
+//   bright blue     (#1E88E5) — primary accent, CTAs, "BOOK" wordmark
+//   pure white      (#FFFFFF) — canvas / cards
+//   soft blue-grey  (#F1F5FB, #E3ECF6) — surfaceSecondary, dividers
+// Success / warning / error remain semantic (green / amber / red) but re-tuned
+// for contrast against the new blue-tinted neutrals.
 
 export const colors = {
-  surface: "#F8FAF9",
-  onSurface: "#191C1B",
-  surfaceSecondary: "#E9EFEE",
-  onSurfaceSecondary: "#3F4947",
-  surfaceTertiary: "#DDE5E4",
-  onSurfaceTertiary: "#191C1B",
-  surfaceInverse: "#2E3130",
-  onSurfaceInverse: "#EFF1F0",
+  // ---- neutrals ----
+  surface: "#FFFFFF",
+  onSurface: "#0F1B3D",
+  surfaceSecondary: "#F1F5FB",
+  onSurfaceSecondary: "#3E5075",
+  surfaceTertiary: "#E3ECF6",
+  onSurfaceTertiary: "#0F1B3D",
+  surfaceInverse: "#001D57", // deep navy — sampled from splash reference
+  onSurfaceInverse: "#FFFFFF",
 
-  brand: "#006B5F",
-  brandPrimary: "#006B5F",
+  // ---- brand ----
+  brand: "#1E88E5", // bright blue (the "BOOK" wordmark)
+  brandPrimary: "#1E88E5",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#4A635E",
+  brandSecondary: "#001D57", // deep navy — headings, secondary accents
   onBrandSecondary: "#FFFFFF",
-  brandTertiary: "#CCE8E3",
-  onBrandTertiary: "#05201C",
+  brandTertiary: "#DCEBFB", // very light blue chip
+  onBrandTertiary: "#001D57",
 
-  success: "#146C2E",
+  // ---- semantic ----
+  success: "#0F7B4C",
   onSuccess: "#FFFFFF",
   warning: "#8D4F00",
   onWarning: "#FFFFFF",
   error: "#BA1A1A",
   onError: "#FFFFFF",
 
-  border: "#BEC9C7",
-  borderStrong: "#6F7978",
-  divider: "#DDE5E4",
+  // ---- lines ----
+  border: "#C8D6EA",
+  borderStrong: "#6F82A6",
+  divider: "#E3ECF6",
 
-  muted: "#6F7978",
-  overlay: "rgba(0,0,0,0.4)",
+  // ---- text ----
+  muted: "#6F82A6",
+  overlay: "rgba(11,42,99,0.55)", // navy overlay for modals
 } as const;
 
 export const spacing = {
