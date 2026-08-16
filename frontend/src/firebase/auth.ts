@@ -433,7 +433,10 @@ export interface OtpTicket {
   sentAt: number;
 }
 
-const RECAPTCHA_STATE: { verifier: RecaptchaVerifier | null } = { verifier: null };
+const RECAPTCHA_STATE: {
+  verifier: RecaptchaVerifier | null;
+  containerId: string | null;
+} = { verifier: null, containerId: null };
 
 function ensureRecaptcha(auth: ReturnType<typeof getFirebaseAuth>, containerId?: string): RecaptchaVerifier {
   if (RECAPTCHA_STATE.verifier) return RECAPTCHA_STATE.verifier;
@@ -447,34 +450,91 @@ function ensureRecaptcha(auth: ReturnType<typeof getFirebaseAuth>, containerId?:
     );
   }
   const id = containerId ?? "tyrebook-recaptcha";
+  // Belt-and-braces: even if we haven't touched this container yet, wipe any
+  // stray reCAPTCHA iframe left over from a previous Firebase session so
+  // `new RecaptchaVerifier(...)` never throws
+  // "reCAPTCHA has already been rendered in this element".
+  const el = document.getElementById(id);
+  if (el && el.innerHTML) el.innerHTML = "";
+  RECAPTCHA_STATE.containerId = id;
   RECAPTCHA_STATE.verifier = new RecaptchaVerifier(auth, id, { size: "invisible" });
   return RECAPTCHA_STATE.verifier;
 }
 
-/** Reset the reCAPTCHA verifier (call between resend attempts or on unmount). */
+/**
+ * Fully dispose the current reCAPTCHA verifier so the very next
+ * `ensureRecaptcha()` call gets a brand-new instance. Must be called:
+ *   * between OTP attempts (success or failure — the verifier is
+ *     single-use per Firebase's contract),
+ *   * before a resend,
+ *   * on screen unmount.
+ *
+ * We do TWO things (defence-in-depth):
+ *   1. Call `verifier.clear()` — the officially documented API.
+ *   2. Manually blank the container's `innerHTML`, because on Web the
+ *      Google reCAPTCHA script sometimes leaves its <iframe> attached
+ *      even after `clear()` returns. When that iframe survives, a
+ *      subsequent `new RecaptchaVerifier(auth, sameId, …)` throws
+ *      "reCAPTCHA has already been rendered in this element" and the
+ *      user is unable to retry / resend.
+ */
 export function resetRecaptcha(): void {
   try {
     RECAPTCHA_STATE.verifier?.clear();
   } catch {
     /* verifier may already be cleared by Firebase */
   }
+  const id = RECAPTCHA_STATE.containerId ?? "tyrebook-recaptcha";
   RECAPTCHA_STATE.verifier = null;
+  RECAPTCHA_STATE.containerId = null;
+  if (typeof document !== "undefined") {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = "";
+  }
 }
 
-/** Normalise a raw mobile number into E.164 format for India (+91). */
+/**
+ * Normalise a raw mobile number into E.164 format for India (+91).
+ *
+ * Design contract:
+ *   * A bare 10-digit mobile (e.g. `9172066276`, `9198765432`) is a
+ *     LOCAL number — we always prepend `+91`. Do NOT try to be clever
+ *     and treat the leading `91` as a country code — that mistake was
+ *     the cause of the previous "please enter a valid 10-digit Indian
+ *     mobile number" rejection on real numbers whose subscriber prefix
+ *     literally starts with `91`.
+ *   * A 12-digit input starting with `91` IS the country-code form
+ *     (`91XXXXXXXXXX` = `+91XXXXXXXXXX`).
+ *   * An input with an explicit leading `+` is trusted as-is (digits
+ *     re-extracted and prefixed with `+`).
+ */
 export function toE164India(raw: string): string {
-  const digits = raw.replace(/\D+/g, "");
-  // If the caller already prefixed 91, drop stray leading zero, keep as-is.
-  if (digits.startsWith("91") && digits.length >= 12) return `+${digits.slice(0, 12)}`;
-  // If it's a bare 10-digit Indian mobile, prefix +91.
+  const trimmed = (raw ?? "").trim();
+  const explicitPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D+/g, "");
+  if (explicitPlus) return `+${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  if (digits.length === 13 && digits.startsWith("091")) return `+${digits.slice(1)}`;
   if (digits.length === 10) return `+91${digits}`;
-  // Fallback: assume already E.164 minus the plus.
   return `+${digits}`;
 }
 
+/**
+ * Validate an Indian mobile number.
+ * The subscriber prefix (first digit of the 10-digit local number) must
+ * be 6, 7, 8 or 9 (TRAI numbering plan). We ONLY strip a leading `91`
+ * when it's clearly the country code (12-digit total, or an explicit `+`
+ * prefix) — otherwise numbers like `9172066276` would be truncated to
+ * an 8-digit local and wrongly rejected.
+ */
 export function isValidIndianMobile(raw: string): boolean {
-  const digits = raw.replace(/\D+/g, "");
-  const local = digits.startsWith("91") ? digits.slice(2) : digits;
+  const trimmed = (raw ?? "").trim();
+  const explicitPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D+/g, "");
+  let local = digits;
+  if (explicitPlus && digits.startsWith("91")) local = digits.slice(2);
+  else if (digits.length === 12 && digits.startsWith("91")) local = digits.slice(2);
+  else if (digits.length === 13 && digits.startsWith("091")) local = digits.slice(3);
   return /^[6-9]\d{9}$/.test(local);
 }
 
@@ -484,15 +544,28 @@ export async function sendOtp(
 ): Promise<OtpTicket> {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error("Firebase Auth not configured.");
-  const phoneNumber = toE164India(rawPhone);
   if (!isValidIndianMobile(rawPhone)) {
     throw new Error("Please enter a valid 10-digit Indian mobile number.");
   }
-  // Fresh verifier per session to avoid stale reCAPTCHA tokens.
+  const phoneNumber = toE164India(rawPhone);
+  // Firebase's RecaptchaVerifier is single-use: once `signInWithPhoneNumber`
+  // consumes the token, the verifier CANNOT be reused for a resend / retry.
+  // We therefore dispose any existing verifier and create a fresh one for
+  // every send attempt (successful or not).
   resetRecaptcha();
   const verifier = ensureRecaptcha(auth, opts.recaptchaContainerId);
-  const confirmation = await fbSignInWithPhoneNumber(auth, phoneNumber, verifier);
-  return { confirmation, phoneNumber, sentAt: Date.now() };
+  try {
+    const confirmation = await fbSignInWithPhoneNumber(auth, phoneNumber, verifier);
+    return { confirmation, phoneNumber, sentAt: Date.now() };
+  } catch (e) {
+    // The verifier is now in an unknown state (challenge shown but not
+    // solved, or challenge solved but the request failed). Nuke it so the
+    // very next retry gets a clean slate — this is what prevents the
+    // "reCAPTCHA has already been rendered in this element" error users
+    // see when they fix a mistyped number and hit "Send OTP" again.
+    resetRecaptcha();
+    throw e;
+  }
 }
 
 export async function verifyOtp(ticket: OtpTicket, code: string): Promise<AppUser> {
