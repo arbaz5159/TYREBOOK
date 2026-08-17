@@ -487,9 +487,20 @@ export function resetRecaptcha(): void {
   const id = RECAPTCHA_STATE.containerId ?? "tyrebook-recaptcha";
   RECAPTCHA_STATE.verifier = null;
   RECAPTCHA_STATE.containerId = null;
+  // Replace the container NODE (same id) so reCAPTCHA fully releases its
+  // internal binding to the element. Simply blanking `innerHTML` is not
+  // enough — grecaptcha keeps a WeakRef-like handle on the original
+  // <div>, which is why users still hit
+  // "reCAPTCHA has already been rendered in this element" on the very
+  // next attempt. Cloning without children and swapping via replaceChild
+  // gives us a brand-new DOM node under the same id that Firebase has
+  // never seen, guaranteeing a clean render on the next call.
   if (typeof document !== "undefined") {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = "";
+    if (el && el.parentNode) {
+      const fresh = el.cloneNode(false) as HTMLElement; // shallow clone: attrs (including id) copied, children dropped
+      el.parentNode.replaceChild(fresh, el);
+    }
   }
 }
 
@@ -556,6 +567,16 @@ export async function sendOtp(
   const verifier = ensureRecaptcha(auth, opts.recaptchaContainerId);
   try {
     const confirmation = await fbSignInWithPhoneNumber(auth, phoneNumber, verifier);
+    // Firebase's RecaptchaVerifier is single-use: the token that was
+    // solved and shipped to `signInWithPhoneNumber` cannot be replayed.
+    // If we DON'T dispose it here on the success path, the very next
+    // send/resend attempt reuses the same DOM container while grecaptcha
+    // still holds an internal binding to it — producing the
+    // "reCAPTCHA has already been rendered in this element" crash the
+    // user reported. Cleaning on both success AND error keeps every
+    // retry path (mistyped number, resend after success, log-out then
+    // log-in) starting from a known-clean state.
+    resetRecaptcha();
     return { confirmation, phoneNumber, sentAt: Date.now() };
   } catch (e) {
     // The verifier is now in an unknown state (challenge shown but not
