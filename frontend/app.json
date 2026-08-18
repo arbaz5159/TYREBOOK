@@ -24,6 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.tireinventory.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
@@ -54,7 +55,9 @@
           "photosPermission": "Attach invoice photos for smart scan",
           "cameraPermission": "Scan invoices and tyre labels for stock entry"
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
     ],
     "experiments": {
       "typedRoutes": true

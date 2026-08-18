@@ -18,7 +18,9 @@
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  PhoneAuthProvider,
   RecaptchaVerifier,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPhoneNumber as fbSignInWithPhoneNumber,
   signOut as fbSignOut,
@@ -34,6 +36,8 @@ import {
 } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
+
+import { Platform } from "react-native";
 
 import { getDb, getFirebaseAuth, isFirebaseConfigured } from "./config";
 import { consumeInvite, findInviteByEmail } from "./invites";
@@ -414,21 +418,32 @@ export async function signOut(): Promise<void> {
 // PLATFORM NOTES
 //   * Web (Expo Web): needs a <View nativeID="recaptcha"> or a <div id="recaptcha">
 //     mounted in the DOM. `RecaptchaVerifier` renders an invisible reCAPTCHA into
-//     that element. Nothing else is required.
-//   * Native iOS/Android via a real EAS build: Firebase JS SDK uses
-//     `signInWithPhoneNumber` with silent verification (SafetyNet on Android,
-//     silent APNs push on iOS). Works after the platform team has enabled the
-//     phone provider in Firebase Console AND the app is signed with the
-//     correct SHA-1 (Android) / bundle id + APNs key (iOS).
-//   * Expo Go: DOES NOT work — Expo Go's JS-only Firebase SDK cannot perform
-//     device attestation. Use Web preview or a dev/production build.
+//     that element. Nothing else is required. This is the ONLY path used on Web.
+//   * Native Android (real APK/AAB with google-services.json + SHA-1 in Firebase):
+//     we route through @react-native-firebase/auth's `signInWithPhoneNumber(...)`
+//     which uses Play Integrity / silent verification and bypasses reCAPTCHA
+//     entirely. We then redeem the returned `verificationId` via the JS SDK's
+//     `signInWithCredential(auth, PhoneAuthProvider.credential(verificationId,
+//     code))` — this is the API-level equivalent of `.confirm(code)` and puts
+//     the resulting user into the JS-SDK auth session that the rest of the
+//     app (Firestore reads/writes, hydrateAppUser, tenant provisioning) is
+//     built on. Calling RNFB's `confirmation.confirm(code)` directly would
+//     sign into a SEPARATE native session and break Firestore access.
+//   * Expo Go: DOES NOT work — Expo Go can't load the RN-Firebase native
+//     modules. Use Web preview or a real EAS build.
 //
 // This flow deliberately re-uses `hydrateAppUser`, so an OTP sign-in follows
 // exactly the same shop-provisioning / role-resolution path as the existing
 // email/password sign-up. Nothing about the multi-tenant model changes.
 
 export interface OtpTicket {
-  confirmation: ConfirmationResult;
+  // Present on Web only — the JS SDK confirmation result from
+  // `signInWithPhoneNumber(auth, phone, RecaptchaVerifier)`.
+  confirmation?: ConfirmationResult;
+  // Server-issued verification id. On Web it's also inside
+  // `confirmation.verificationId` (we cache it here for uniformity).
+  // On native Android it comes from RNFB's `signInWithPhoneNumber`.
+  verificationId: string;
   phoneNumber: string;
   sentAt: number;
 }
@@ -441,12 +456,13 @@ const RECAPTCHA_STATE: {
 function ensureRecaptcha(auth: ReturnType<typeof getFirebaseAuth>, containerId?: string): RecaptchaVerifier {
   if (RECAPTCHA_STATE.verifier) return RECAPTCHA_STATE.verifier;
   if (!auth) throw new Error("Firebase Auth not configured.");
-  // The RecaptchaVerifier constructor requires a DOM element on Web. On native
-  // Expo Go this branch will throw — we surface a clear message so the UI can
-  // explain the Expo Go limitation instead of crashing.
+  // `RecaptchaVerifier` requires a DOM. This helper is ONLY called from the
+  // Web branch of `sendOtp` — the native branch never reaches here — so a
+  // missing `document` genuinely means we're on Native without a browser
+  // shim, i.e. Expo Go. In that (rare) case the OTP flow can't proceed.
   if (typeof document === "undefined") {
     throw new Error(
-      "OTP login isn't available in Expo Go — please use the web preview or a real Android/iOS build to test OTP.",
+      "OTP login isn't available in Expo Go — please use the web preview or a real Android/iOS build.",
     );
   }
   const id = containerId ?? "tyrebook-recaptcha";
@@ -559,6 +575,43 @@ export async function sendOtp(
     throw new Error("Please enter a valid 10-digit Indian mobile number.");
   }
   const phoneNumber = toE164India(rawPhone);
+
+  // -------------------------------------------------------------------
+  // Native path (Android APK/AAB) — bypass reCAPTCHA via Play Integrity
+  // -------------------------------------------------------------------
+  // We dynamically require @react-native-firebase/auth so this module
+  // continues to load fine on Web (where the native module isn't
+  // available) and on Expo Go (where it would throw — we catch and
+  // surface a clear message).
+  if (Platform.OS !== "web") {
+    let rnfbAuth: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      rnfbAuth = require("@react-native-firebase/auth").default;
+    } catch {
+      throw new Error(
+        "OTP login on mobile requires a real Android/iOS build (@react-native-firebase/auth is not available inside Expo Go). Please use the web preview or generate an APK/AAB.",
+      );
+    }
+    let confirmation: any;
+    try {
+      confirmation = await rnfbAuth().signInWithPhoneNumber(phoneNumber);
+    } catch (e) {
+      throw e;
+    }
+    if (!confirmation?.verificationId) {
+      throw new Error("Firebase did not return a verification id — please retry.");
+    }
+    return {
+      verificationId: confirmation.verificationId as string,
+      phoneNumber,
+      sentAt: Date.now(),
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // Web path — JS SDK + reCAPTCHA (unchanged behaviour)
+  // -------------------------------------------------------------------
   // Firebase's RecaptchaVerifier is single-use: once `signInWithPhoneNumber`
   // consumes the token, the verifier CANNOT be reused for a resend / retry.
   // We therefore dispose any existing verifier and create a fresh one for
@@ -577,7 +630,12 @@ export async function sendOtp(
     // retry path (mistyped number, resend after success, log-out then
     // log-in) starting from a known-clean state.
     resetRecaptcha();
-    return { confirmation, phoneNumber, sentAt: Date.now() };
+    return {
+      confirmation,
+      verificationId: confirmation.verificationId,
+      phoneNumber,
+      sentAt: Date.now(),
+    };
   } catch (e) {
     // The verifier is now in an unknown state (challenge shown but not
     // solved, or challenge solved but the request failed). Nuke it so the
@@ -594,7 +652,21 @@ export async function verifyOtp(ticket: OtpTicket, code: string): Promise<AppUse
   if (trimmed.length !== 6) {
     throw new Error("Please enter the 6-digit code you received.");
   }
-  const cred = await ticket.confirmation.confirm(trimmed);
+  const auth = getFirebaseAuth();
+  if (!auth) throw new Error("Firebase Auth not configured.");
+
+  // Both platforms redeem the code through the JS SDK so the resulting
+  // Firebase user lands in the SAME auth session that Firestore, tenant
+  // provisioning, and hydrateAppUser expect. On Web the ticket already
+  // holds a JS-SDK confirmation; on Native we built the credential from
+  // the verificationId returned by RNFB.
+  let cred;
+  if (Platform.OS === "web" && ticket.confirmation) {
+    cred = await ticket.confirmation.confirm(trimmed);
+  } else {
+    const credential = PhoneAuthProvider.credential(ticket.verificationId, trimmed);
+    cred = await signInWithCredential(auth, credential);
+  }
   // Phone-auth users don't have an email yet — the existing hydrate flow
   // handles the null-email path (falls through to the fresh Shop Admin
   // branch and provisions a new tenant). Existing invited-staff / super-admin
