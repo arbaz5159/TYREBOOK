@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "321504407447",
+    "project_id": "tyrebook-dea3f",
+    "storage_bucket": "tyrebook-dea3f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:321504407447:android:ee45155cd0966fb4691ed2",
+        "android_client_info": {
+          "package_name": "com.tireinventory.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAsQ461QPeYXGqjvLrb4UNIamW3EG38e2o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
