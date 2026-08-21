@@ -87,13 +87,19 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      const t = await sendOtp(phone, { recaptchaContainerId: RECAPTCHA_ID });
+      // Web needs the reCAPTCHA container id; native ignores it entirely
+      // (RNFB uses Play Integrity / silent verification and does NOT
+      // render a reCAPTCHA challenge).
+      const t = await sendOtp(
+        phone,
+        Platform.OS === "web" ? { recaptchaContainerId: RECAPTCHA_ID } : {},
+      );
       setTicket(t);
       setMode("otp-code");
       setCode("");
       startResendCountdown();
-    } catch (e: any) {
-      setError(e?.message || "Could not send OTP. Please try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send OTP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -112,8 +118,8 @@ export default function LoginScreen() {
       // Firebase user and route us; we just navigate back to the entry
       // point which re-computes the destination based on role/shop.
       router.replace("/");
-    } catch (e: any) {
-      const msg = e?.message ?? "";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e ?? "");
       if (msg.includes("invalid-verification-code")) {
         setError("That OTP doesn't match. Please check and try again.");
       } else {
@@ -140,8 +146,8 @@ export default function LoginScreen() {
     try {
       await signIn(email.trim(), password);
       router.replace("/(tabs)/dashboard");
-    } catch (e: any) {
-      setError(e?.message ?? "Login failed. Please try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login failed. Please try again.");
     } finally {
       setLoading(false);
     }

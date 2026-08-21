@@ -18,9 +18,7 @@
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
-  PhoneAuthProvider,
   RecaptchaVerifier,
-  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPhoneNumber as fbSignInWithPhoneNumber,
   signOut as fbSignOut,
@@ -42,6 +40,11 @@ import { Platform } from "react-native";
 import { getDb, getFirebaseAuth, isFirebaseConfigured } from "./config";
 import { consumeInvite, findInviteByEmail } from "./invites";
 import { runLegacyMigration } from "./migrate";
+import {
+  nativeGetDocData,
+  nativeServerTimestamp,
+  nativeSetDoc,
+} from "./nativeFirestore";
 import { createShop, effectiveStatus, getShop, type Shop } from "./shops";
 import { setActiveShopId } from "./tenant";
 import { stripUndefined } from "./util";
@@ -108,20 +111,26 @@ async function writeLocalUser(user: AppUser | null): Promise<void> {
  * Read the users/{uid} doc. Returns null on any error (including
  * permission-denied) so callers can gracefully fall back to the email-based
  * defaults.
+ *
+ * Platform-branched: on Native we ALWAYS go through RNFB Firestore so the
+ * request is authenticated by the native phone-auth session. On Web we use
+ * the JS SDK, matching the existing behaviour.
  */
+interface UserDocRaw {
+  role?: unknown;
+  shopId?: unknown;
+  name?: unknown;
+}
+
 async function readUserDoc(
   uid: string,
 ): Promise<{ role: AppRole; shopId?: string; name?: string } | null> {
-  const db = getDb();
-  if (!db) return null;
-  try {
-    const snap = await getDoc(doc(db, "users", uid));
-    if (!snap.exists()) return null;
-    const data = snap.data() as any;
+  const coerce = (data: UserDocRaw | null): { role: AppRole; shopId?: string; name?: string } | null => {
+    if (!data) return null;
     const rawRole = data.role;
     const role: AppRole =
       rawRole === "super_admin" || rawRole === "shop_admin" || rawRole === "staff"
-        ? rawRole
+        ? (rawRole as AppRole)
         : // Legacy shape: {role: "owner" | "staff"} — migrator will fix on next
           // super-admin login; treat "owner" as shop_admin in the meantime.
           rawRole === "owner"
@@ -132,6 +141,23 @@ async function readUserDoc(
       shopId: typeof data.shopId === "string" ? data.shopId : undefined,
       name: typeof data.name === "string" ? data.name : undefined,
     };
+  };
+
+  if (Platform.OS !== "web") {
+    try {
+      const data = await nativeGetDocData<UserDocRaw>(["users", uid]);
+      return coerce(data);
+    } catch {
+      return null;
+    }
+  }
+
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (!snap.exists()) return null;
+    return coerce(snap.data() as UserDocRaw);
   } catch {
     return null;
   }
@@ -147,19 +173,33 @@ async function upsertMember(
   user: User,
   data: { role: AppRole; name?: string },
 ): Promise<void> {
+  const payload = stripUndefined({
+    uid: user.uid,
+    email: user.email ?? undefined,
+    name: data.name || user.displayName || undefined,
+    role: data.role,
+    active: true,
+  });
+
+  if (Platform.OS !== "web") {
+    try {
+      await nativeSetDoc(
+        ["shops", shopId, "members", user.uid],
+        { ...payload, updatedAt: nativeServerTimestamp() },
+        true,
+      );
+    } catch {
+      // rules-block or offline — main user record is already written elsewhere
+    }
+    return;
+  }
+
   const db = getDb();
   if (!db) return;
   try {
     await setDoc(
       doc(db, "shops", shopId, "members", user.uid),
-      stripUndefined({
-        uid: user.uid,
-        email: user.email ?? undefined,
-        name: data.name || user.displayName || undefined,
-        role: data.role,
-        active: true,
-        updatedAt: serverTimestamp(),
-      }),
+      { ...payload, updatedAt: serverTimestamp() },
       { merge: true },
     );
   } catch {
@@ -176,6 +216,40 @@ async function upsertUserDoc(
   user: User,
   data: { name?: string; role: AppRole; shopId: string | null },
 ): Promise<void> {
+  const baseName =
+    data.name
+    || user.displayName
+    || (user.email ?? "").split("@")[0]
+    || (user.phoneNumber ?? "").replace(/^\+91/, "")
+    || undefined;
+
+  if (Platform.OS !== "web") {
+    try {
+      const existing = await nativeGetDocData<Record<string, unknown>>(["users", user.uid]);
+      const payload = stripUndefined({
+        uid: user.uid,
+        email: user.email ?? undefined,
+        phoneNumber: user.phoneNumber ?? undefined,
+        name: baseName,
+        role: data.role,
+        shopId: data.shopId ?? undefined,
+        lastLoginAt: nativeServerTimestamp(),
+      });
+      if (existing) {
+        await nativeSetDoc(["users", user.uid], payload, true);
+      } else {
+        await nativeSetDoc(
+          ["users", user.uid],
+          { ...payload, active: true, createdAt: nativeServerTimestamp() },
+          true,
+        );
+      }
+    } catch {
+      // non-fatal: don't lock the user out because of a rules mis-config
+    }
+    return;
+  }
+
   const db = getDb();
   if (!db) return;
   try {
@@ -185,12 +259,7 @@ async function upsertUserDoc(
       uid: user.uid,
       email: user.email ?? undefined,
       phoneNumber: user.phoneNumber ?? undefined,
-      name:
-        data.name
-        || user.displayName
-        || (user.email ?? "").split("@")[0]
-        || (user.phoneNumber ?? "").replace(/^\+91/, "")
-        || undefined,
+      name: baseName,
       role: data.role,
       shopId: data.shopId ?? undefined,
       lastLoginAt: serverTimestamp(),
@@ -400,8 +469,31 @@ export async function signUp(
 }
 
 export async function signOut(): Promise<void> {
+  // Native path: sign out of RNFB auth session, which is what the phone
+  // OTP flow authenticates into. We also call the JS SDK signOut below
+  // because email/password / super-admin login on native (if ever used)
+  // would land in the JS SDK session — this makes signOut idempotent for
+  // both branches without cross-SDK credential exchange.
+  if (Platform.OS !== "web") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const rnfb = require("@react-native-firebase/auth") as NativeAuthModule;
+      const nativeAuth = rnfb.getAuth();
+      if (nativeAuth.currentUser) {
+        await rnfb.signOut(nativeAuth);
+      }
+    } catch {
+      // native module unavailable (e.g. running under Expo Go) — ignore.
+    }
+  }
   const auth = getFirebaseAuth();
-  if (auth) await fbSignOut(auth);
+  if (auth) {
+    try {
+      await fbSignOut(auth);
+    } catch {
+      /* already signed out */
+    }
+  }
   await writeLocalUser(null);
   await storage.removeItem(ROLE_KEY);
   await storage.removeItem(SHOP_KEY);
@@ -437,13 +529,13 @@ export async function signOut(): Promise<void> {
 // email/password sign-up. Nothing about the multi-tenant model changes.
 
 export interface OtpTicket {
-  // Present on Web only — the JS SDK confirmation result from
-  // `signInWithPhoneNumber(auth, phone, RecaptchaVerifier)`.
+  // Web JS SDK confirmation. Populated only when Platform.OS === "web".
   confirmation?: ConfirmationResult;
-  // Server-issued verification id. On Web it's also inside
-  // `confirmation.verificationId` (we cache it here for uniformity).
-  // On native Android it comes from RNFB's `signInWithPhoneNumber`.
-  verificationId: string;
+  // Native (RNFirebase v26) confirmation. Populated only when
+  // Platform.OS !== "web". Stored as `unknown` here because the type is
+  // resolved lazily inside `sendOtp` to keep Web bundles free of the
+  // native module reference.
+  nativeConfirmation?: unknown;
   phoneNumber: string;
   sentAt: number;
 }
@@ -570,48 +662,44 @@ export async function sendOtp(
   opts: { recaptchaContainerId?: string } = {},
 ): Promise<OtpTicket> {
   const auth = getFirebaseAuth();
-  if (!auth) throw new Error("Firebase Auth not configured.");
+  if (!auth && Platform.OS === "web") throw new Error("Firebase Auth not configured.");
   if (!isValidIndianMobile(rawPhone)) {
     throw new Error("Please enter a valid 10-digit Indian mobile number.");
   }
   const phoneNumber = toE164India(rawPhone);
 
   // -------------------------------------------------------------------
-  // Native path (Android APK/AAB) — bypass reCAPTCHA via Play Integrity
+  // Native path (Android APK/AAB) — v26 modular API, same SDK end-to-end
   // -------------------------------------------------------------------
-  // We dynamically require @react-native-firebase/auth so this module
-  // continues to load fine on Web (where the native module isn't
-  // available) and on Expo Go (where it would throw — we catch and
-  // surface a clear message).
+  // We dynamically require @react-native-firebase/auth so the Web bundle
+  // never resolves the native module. On a real device this uses Play
+  // Integrity / silent verification and does NOT touch reCAPTCHA.
   if (Platform.OS !== "web") {
-    let rnfbAuth: any;
+    let rnfbMod: NativeAuthModule;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      rnfbAuth = require("@react-native-firebase/auth").default;
+      rnfbMod = require("@react-native-firebase/auth") as NativeAuthModule;
     } catch {
       throw new Error(
-        "OTP login on mobile requires a real Android/iOS build (@react-native-firebase/auth is not available inside Expo Go). Please use the web preview or generate an APK/AAB.",
+        "OTP login on mobile requires a real Android/iOS build (@react-native-firebase/auth native module is unavailable in Expo Go). Please use the web preview or generate an APK/AAB.",
       );
     }
-    let confirmation: any;
+    const nativeAuthInstance = rnfbMod.getAuth();
     try {
-      confirmation = await rnfbAuth().signInWithPhoneNumber(phoneNumber);
+      const nativeConfirmation = await rnfbMod.signInWithPhoneNumber(
+        nativeAuthInstance,
+        phoneNumber,
+      );
+      return { nativeConfirmation, phoneNumber, sentAt: Date.now() };
     } catch (e) {
-      throw e;
+      throw mapNativeAuthError(e);
     }
-    if (!confirmation?.verificationId) {
-      throw new Error("Firebase did not return a verification id — please retry.");
-    }
-    return {
-      verificationId: confirmation.verificationId as string,
-      phoneNumber,
-      sentAt: Date.now(),
-    };
   }
 
   // -------------------------------------------------------------------
   // Web path — JS SDK + reCAPTCHA (unchanged behaviour)
   // -------------------------------------------------------------------
+  if (!auth) throw new Error("Firebase Auth not configured.");
   // Firebase's RecaptchaVerifier is single-use: once `signInWithPhoneNumber`
   // consumes the token, the verifier CANNOT be reused for a resend / retry.
   // We therefore dispose any existing verifier and create a fresh one for
@@ -632,7 +720,6 @@ export async function sendOtp(
     resetRecaptcha();
     return {
       confirmation,
-      verificationId: confirmation.verificationId,
       phoneNumber,
       sentAt: Date.now(),
     };
@@ -647,26 +734,102 @@ export async function sendOtp(
   }
 }
 
+// Native RNFirebase-auth module shape we consume. Kept local so Web
+// bundles never pull in the ambient types file.
+interface NativeAuthUser {
+  uid: string;
+  email: string | null;
+  phoneNumber: string | null;
+  displayName: string | null;
+}
+interface NativeAuthConfirmation {
+  confirm: (code: string) => Promise<{ user: NativeAuthUser }>;
+}
+interface NativeAuthInstance {
+  currentUser: NativeAuthUser | null;
+}
+interface NativeAuthModule {
+  getAuth: () => NativeAuthInstance;
+  signInWithPhoneNumber: (
+    auth: NativeAuthInstance,
+    phone: string,
+  ) => Promise<NativeAuthConfirmation>;
+  signOut: (auth: NativeAuthInstance) => Promise<void>;
+  onAuthStateChanged: (
+    auth: NativeAuthInstance,
+    cb: (user: NativeAuthUser | null) => void,
+  ) => () => void;
+}
+
+function mapNativeAuthError(e: unknown): Error {
+  const code = (e as { code?: string } | null)?.code ?? "";
+  switch (code) {
+    case "auth/invalid-phone-number":
+      return new Error("The phone number is not in a valid E.164 format.");
+    case "auth/missing-phone-number":
+      return new Error("Please enter a mobile number.");
+    case "auth/quota-exceeded":
+      return new Error("SMS quota exceeded for this project — try again later.");
+    case "auth/too-many-requests":
+      return new Error("Too many requests from this device. Please wait a few minutes.");
+    case "auth/invalid-verification-code":
+      return new Error("That OTP doesn't match. Please check and try again.");
+    case "auth/session-expired":
+    case "auth/code-expired":
+      return new Error("The OTP has expired. Tap Resend to request a fresh code.");
+    case "auth/app-not-authorized":
+      return new Error(
+        "This app is not authorized to use Firebase Phone Auth — check the SHA-1 / SHA-256 fingerprints in Firebase Console.",
+      );
+    case "auth/network-request-failed":
+      return new Error("Network error — please check your connection and try again.");
+    default:
+      return e instanceof Error ? e : new Error(String(e ?? "OTP send failed"));
+  }
+}
+
 export async function verifyOtp(ticket: OtpTicket, code: string): Promise<AppUser> {
   const trimmed = (code || "").replace(/\D+/g, "");
   if (trimmed.length !== 6) {
     throw new Error("Please enter the 6-digit code you received.");
   }
   const auth = getFirebaseAuth();
-  if (!auth) throw new Error("Firebase Auth not configured.");
 
-  // Both platforms redeem the code through the JS SDK so the resulting
-  // Firebase user lands in the SAME auth session that Firestore, tenant
-  // provisioning, and hydrateAppUser expect. On Web the ticket already
-  // holds a JS-SDK confirmation; on Native we built the credential from
-  // the verificationId returned by RNFB.
-  let cred;
-  if (Platform.OS === "web" && ticket.confirmation) {
-    cred = await ticket.confirmation.confirm(trimmed);
-  } else {
-    const credential = PhoneAuthProvider.credential(ticket.verificationId, trimmed);
-    cred = await signInWithCredential(auth, credential);
+  // Native path: use the SAME RNFB confirmation we received in sendOtp.
+  // `confirmation.confirm(code)` completes the sign-in inside the native
+  // Firebase Auth session — the same session native Firestore reads from,
+  // so downstream user-doc / shop-provisioning writes are authenticated.
+  if (Platform.OS !== "web") {
+    if (!ticket.nativeConfirmation) {
+      throw new Error("Missing native OTP confirmation — please tap Send OTP again.");
+    }
+    const nc = ticket.nativeConfirmation as NativeAuthConfirmation;
+    try {
+      const cred = await nc.confirm(trimmed);
+      // Adapt the RNFB user-shape to the tiny surface `hydrateAppUser`
+      // needs (uid, email, phoneNumber, displayName). We keep the type
+      // compatible via a duck-typed adapter — no `any` casts.
+      const adapted: User = {
+        uid: cred.user.uid,
+        email: cred.user.email ?? null,
+        phoneNumber: cred.user.phoneNumber ?? null,
+        displayName: cred.user.displayName ?? null,
+        // The rest of the User interface isn't used by hydrateAppUser but
+        // TypeScript demands we satisfy the shape. We mark those as
+        // never-called stubs.
+      } as unknown as User;
+      return hydrateAppUser(adapted);
+    } catch (e) {
+      throw mapNativeAuthError(e);
+    }
   }
+
+  // Web path — unchanged.
+  if (!auth) throw new Error("Firebase Auth not configured.");
+  if (!ticket.confirmation) {
+    throw new Error("Missing OTP confirmation — please tap Send OTP again.");
+  }
+  const cred = await ticket.confirmation.confirm(trimmed);
   // Phone-auth users don't have an email yet — the existing hydrate flow
   // handles the null-email path (falls through to the fresh Shop Admin
   // branch and provisions a new tenant). Existing invited-staff / super-admin
@@ -677,7 +840,9 @@ export async function verifyOtp(ticket: OtpTicket, code: string): Promise<AppUse
 
 export function subscribeAuth(cb: (user: AppUser | null) => void): () => void {
   const auth = getFirebaseAuth();
-  if (!auth) {
+
+  // Local-only fallback (Firebase not configured at all).
+  if (!auth && Platform.OS === "web") {
     (async () => {
       const u = await readLocalUser();
       if (u?.shopId) setActiveShopId(u.shopId);
@@ -685,26 +850,76 @@ export function subscribeAuth(cb: (user: AppUser | null) => void): () => void {
     })();
     return () => {};
   }
-  return onAuthStateChanged(auth, async (user) => {
-    if (!user) {
+
+  // On native we also subscribe to the RNFB auth session so phone-OTP
+  // sign-ins (which live entirely in the native session and never touch
+  // the JS SDK auth) still drive AuthContext. Both listeners share the
+  // same downstream `hydrate` helper so ordering doesn't matter: whoever
+  // fires last wins, and RNFB currentUser + JS SDK currentUser are never
+  // both non-null in practice because a user can only be authenticated
+  // one way at a time on native.
+  const dispose: (() => void)[] = [];
+
+  const hydrate = async (rawUser: User | null) => {
+    if (!rawUser) {
       setActiveShopId(null);
       cb(null);
       return;
     }
     try {
-      const hydrated = await hydrateAppUser(user);
+      const hydrated = await hydrateAppUser(rawUser);
       cb(hydrated);
     } catch (e) {
       console.warn("[auth] hydrateAppUser failed:", e);
       cb({
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
+        uid: rawUser.uid,
+        email: rawUser.email,
+        displayName: rawUser.displayName,
         role: "shop_admin",
         shopId: null,
       });
     }
-  });
+  };
+
+  if (auth) {
+    dispose.push(onAuthStateChanged(auth, hydrate));
+  }
+
+  if (Platform.OS !== "web") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const rnfb = require("@react-native-firebase/auth") as NativeAuthModule;
+      const nativeAuth = rnfb.getAuth();
+      const unsub = rnfb.onAuthStateChanged(nativeAuth, (nu) => {
+        if (!nu) {
+          // Only clear if the JS SDK also has no user — otherwise the JS
+          // listener will handle it. Prevents flicker during hot-reload.
+          if (!auth?.currentUser) hydrate(null);
+          return;
+        }
+        const adapted: User = {
+          uid: nu.uid,
+          email: nu.email ?? null,
+          phoneNumber: nu.phoneNumber ?? null,
+          displayName: nu.displayName ?? null,
+        } as unknown as User;
+        hydrate(adapted);
+      });
+      dispose.push(unsub);
+    } catch {
+      // native module unavailable (Expo Go). JS SDK listener is enough.
+    }
+  }
+
+  return () => {
+    for (const d of dispose) {
+      try {
+        d();
+      } catch {
+        /* noop */
+      }
+    }
+  };
 }
 
 export { isFirebaseConfigured };

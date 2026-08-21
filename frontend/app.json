@@ -57,7 +57,18 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/auth"
+      "@react-native-firebase/auth",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          },
+          "android": {
+            "extraProguardRules": "-keep class com.google.firebase.** { *; }"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

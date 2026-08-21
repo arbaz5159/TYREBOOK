@@ -3,6 +3,13 @@
 // A "shop" doc lives at `shops/{shopId}` at the ROOT of Firestore. Its
 // subcollections (tyres, sales, customers, ...) are all tenant-scoped
 // automatically (see /src/firebase/tenant.ts).
+//
+// Platform note: on Native we branch `getShop` + `createShop` through the
+// React Native Firebase Firestore SDK so a phone-OTP session (which lives
+// entirely in the RNFB auth session, per Message 515) is honoured by
+// Firestore rules. Other exports (list/update/delete) still use the JS
+// SDK because they're only called from the Super Admin panel, which
+// currently signs in with email/password on Web.
 
 import {
 
@@ -15,8 +22,15 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
+import { Platform } from "react-native";
 
 import { getDb } from "./config";
+import {
+  nativeDocExists,
+  nativeGetDocData,
+  nativeServerTimestamp,
+  nativeSetDoc,
+} from "./nativeFirestore";
 import { stripUndefined } from "./util";
 
 export type ShopStatus = "trial" | "active" | "expired" | "suspended";
@@ -93,9 +107,6 @@ export async function createShop(input: {
   ownerUid: string;
   ownerEmail: string;
 }): Promise<Shop> {
-  const db = getDb();
-  if (!db) throw new Error("Firestore not configured.");
-
   const base = slugify(input.name) || slugify(input.ownerEmail.split("@")[0]) || "shop";
 
   const buildPayload = (id: string): Shop => {
@@ -112,14 +123,69 @@ export async function createShop(input: {
     };
   };
 
-  // Attempt with slug pre-check. If we hit permission-denied on the
-  // slug-existence probe, we can't verify the slug is free — signal
-  // "PRECHECK_DENIED" to jump straight to a random-suffix id (which
-  // effectively cannot collide).
   type AttemptResult =
     | { kind: "created"; shop: Shop }
     | { kind: "taken" }
     | { kind: "precheck_denied" };
+
+  const randSuffix = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+
+  // -------------------------------------------------------------------
+  // Native path (RNFB Firestore) — authenticated by the phone-auth session
+  // -------------------------------------------------------------------
+  if (Platform.OS !== "web") {
+    const tryNativeWithPrecheck = async (id: string): Promise<AttemptResult> => {
+      try {
+        if (await nativeDocExists(["shops", id])) return { kind: "taken" };
+      } catch (e) {
+        if (isPermissionDenied(e)) return { kind: "precheck_denied" };
+        throw e;
+      }
+      const payload = buildPayload(id);
+      await nativeSetDoc(
+        ["shops", id],
+        stripUndefined({
+          ...payload,
+          createdAt: nativeServerTimestamp(),
+          updatedAt: nativeServerTimestamp(),
+        }),
+      );
+      return { kind: "created", shop: payload };
+    };
+    const writeNativeWithRandomId = async (): Promise<Shop> => {
+      const id = `${base}-${randSuffix()}`;
+      const payload = buildPayload(id);
+      await nativeSetDoc(
+        ["shops", id],
+        stripUndefined({
+          ...payload,
+          createdAt: nativeServerTimestamp(),
+          updatedAt: nativeServerTimestamp(),
+        }),
+      );
+      return payload;
+    };
+    const firstN = await tryNativeWithPrecheck(base);
+    if (firstN.kind === "created") return firstN.shop;
+    if (firstN.kind === "precheck_denied") return writeNativeWithRandomId();
+    for (let i = 2; i < 20; i++) {
+      const altN = await tryNativeWithPrecheck(`${base}-${i}`);
+      if (altN.kind === "created") return altN.shop;
+      if (altN.kind === "precheck_denied") return writeNativeWithRandomId();
+    }
+    return writeNativeWithRandomId();
+  }
+
+  // -------------------------------------------------------------------
+  // Web path (Firebase JS SDK) — unchanged
+  // -------------------------------------------------------------------
+  const db = getDb();
+  if (!db) throw new Error("Firestore not configured.");
+
+  // Attempt with slug pre-check. If we hit permission-denied on the
+  // slug-existence probe, we can't verify the slug is free — signal
+  // "PRECHECK_DENIED" to jump straight to a random-suffix id (which
+  // effectively cannot collide).
 
   const tryWithPrecheck = async (id: string): Promise<AttemptResult> => {
     const ref = doc(db, SHOPS_COLLECTION, id);
@@ -141,7 +207,6 @@ export async function createShop(input: {
   // Blind-write path — used ONLY when pre-check is denied by rules. We
   // pick a UUID-strength suffix so collision odds are negligible and we
   // never overwrite an existing tenant.
-  const randSuffix = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
   const writeWithRandomId = async (): Promise<Shop> => {
     const id = `${base}-${randSuffix()}`;
     const payload = buildPayload(id);
@@ -167,6 +232,14 @@ export async function createShop(input: {
 }
 
 export async function getShop(shopId: string): Promise<Shop | null> {
+  if (Platform.OS !== "web") {
+    try {
+      const data = await nativeGetDocData<Omit<Shop, "id">>(["shops", shopId]);
+      return data ? { id: shopId, ...data } : null;
+    } catch {
+      return null;
+    }
+  }
   const db = getDb();
   if (!db) return null;
   const snap = await getDoc(doc(db, SHOPS_COLLECTION, shopId));
