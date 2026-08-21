@@ -37,7 +37,7 @@ const GST_OPTIONS = [0, 5, 12, 18, 28];
 type BillKind = "Tax Invoice" | "Kacha Bill";
 const BILL_KINDS: { value: BillKind; label: string; hint: string }[] = [
   { value: "Tax Invoice", label: "GST Invoice", hint: "With GST · HSN · CGST/SGST/IGST" },
-  { value: "Kacha Bill", label: "Kacha Bill", hint: "Cash Memo · No GST" },
+  { value: "Kacha Bill", label: "Sale Receipt", hint: "Cash Memo · No GST" },
 ];
 
 export default function NewSale() {
@@ -362,7 +362,7 @@ export default function NewSale() {
 
             <Text style={styles.label}>GST %</Text>
             {isKacha ? (
-              <Text style={styles.helper}>Kacha Bill does not charge GST.</Text>
+              <Text style={styles.helper}>Sale Receipt does not charge GST.</Text>
             ) : (
               <ChipRow
                 options={GST_OPTIONS.map((n) => ({ value: n, label: `${n}%` }))}

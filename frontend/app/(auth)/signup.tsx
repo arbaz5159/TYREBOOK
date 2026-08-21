@@ -64,7 +64,7 @@ export default function SignupScreen() {
             <View style={styles.logo}>
               <MaterialCommunityIcons name="tire" size={40} color={colors.onBrandPrimary} />
             </View>
-            <Text style={styles.brand}>TyreBook</Text>
+            <Text style={styles.brand}>TYRE KHATA</Text>
           </View>
 
           <Text style={styles.title}>Create your shop</Text>

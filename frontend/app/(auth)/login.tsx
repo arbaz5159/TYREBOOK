@@ -170,7 +170,7 @@ export default function LoginScreen() {
             </View>
             <Text style={styles.brand}>
               <Text style={styles.brandDark}>TYRE</Text>
-              <Text style={styles.brandBright}>BOOK</Text>
+              <Text style={styles.brandBright}>KHATA</Text>
             </Text>
           </View>
 
@@ -366,7 +366,7 @@ export default function LoginScreen() {
           )}
 
           <Text style={styles.legal}>
-            By continuing you agree to TyreBook&apos;s Terms of Service and Privacy Policy.
+            By continuing you agree to TYRE KHATA&apos;s Terms of Service and Privacy Policy.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

@@ -84,14 +84,14 @@ export default function Index() {
               source={require("../assets/images/icon.png")}
               style={styles.logo}
               resizeMode="contain"
-              accessibilityLabel="TyreBook logo"
+              accessibilityLabel="TYRE KHATA logo"
             />
           </Animated.View>
 
           <Animated.View style={[styles.wordmarkBlock, wordmarkStyle]}>
             <Text style={styles.wordmark}>
               <Text style={styles.wordmarkDark}>TYRE</Text>
-              <Text style={styles.wordmarkBright}>BOOK</Text>
+              <Text style={styles.wordmarkBright}>KHATA</Text>
             </Text>
             <View style={styles.rule} />
             <Text style={styles.tagline}>Smart Tyre Inventory & Billing</Text>

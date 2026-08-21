@@ -39,7 +39,7 @@ export default function SubscriptionLocked() {
     status === "suspended"
       ? "Your shop's access has been paused by the platform admin. Please contact support to restore access."
       : shop?.trialEndsAt && shop.status === "trial"
-        ? "Your 14-day free trial has ended. Renew your plan to keep using TyreBook."
+        ? "Your 14-day free trial has ended. Renew your plan to keep using TYRE KHATA."
         : "Your subscription has expired. Renew your plan to keep managing your shop.";
 
   return (
@@ -100,7 +100,7 @@ export default function SubscriptionLocked() {
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
             <Text style={styles.contactTitle}>Renew your subscription</Text>
             <Text style={styles.contactBody}>
-              Please contact your TyreBook representative to reactivate service.
+              Please contact your TYRE KHATA representative to reactivate service.
               Once reactivated, your shop&apos;s inventory, sales, and khata data
               will be immediately available — nothing is lost.
             </Text>

@@ -55,7 +55,7 @@ export default function SmartPurchaseScanner() {
         setError(
           perm.canAskAgain
             ? "Camera permission is required to capture invoices."
-            : "Camera permission is blocked. Enable it from device Settings → Apps → TyreBook.",
+            : "Camera permission is blocked. Enable it from device Settings → Apps → TYRE KHATA.",
         );
         return;
       }
@@ -87,7 +87,7 @@ export default function SmartPurchaseScanner() {
         setError(
           perm.canAskAgain
             ? "Photo permission is required to upload invoices."
-            : "Photo permission is blocked. Enable it from device Settings → Apps → TyreBook.",
+            : "Photo permission is blocked. Enable it from device Settings → Apps → TYRE KHATA.",
         );
         return;
       }

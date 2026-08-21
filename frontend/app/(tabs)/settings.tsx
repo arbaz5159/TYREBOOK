@@ -48,7 +48,7 @@ export default function Settings() {
     { icon: "account-multiple-outline", label: "Customers", href: "/customers" },
     { icon: "cart-arrow-down", label: "Purchase History", href: "/purchase" },
     { icon: "account-circle-outline", label: "Profile", hint: user?.email ?? "" },
-    { icon: "information-outline", label: "About TyreBook", hint: "v1.0.0" },
+    { icon: "information-outline", label: "About TYRE KHATA", hint: "v1.0.0" },
   ];
 
   return (

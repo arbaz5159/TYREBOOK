@@ -114,7 +114,7 @@ export default function ShopSettingsScreen() {
           </View>
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
-              <AppTextField label="Kacha Bill Prefix" value={form.kachaPrefix || ""} onChangeText={(v) => update({ kachaPrefix: v })} placeholder="CM" testID="shop-kacha-prefix" />
+              <AppTextField label="Sale Receipt Prefix" value={form.kachaPrefix || ""} onChangeText={(v) => update({ kachaPrefix: v })} placeholder="CM" testID="shop-kacha-prefix" />
             </View>
             <View style={{ flex: 1, marginLeft: spacing.sm }}>
               <AppTextField label="Next Kacha #" value={form.nextKachaNumber || ""} onChangeText={(v) => update({ nextKachaNumber: v })} placeholder="0001" testID="shop-kacha-next" />

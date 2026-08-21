@@ -138,7 +138,7 @@ export default function Billing() {
           { value: "all", label: "All" },
           { value: "today", label: "Today" },
           { value: "gst", label: "GST Invoice" },
-          { value: "kacha", label: "Kacha Bill" },
+          { value: "kacha", label: "Sale Receipt" },
           { value: "credit", label: "Credit / Khata" },
         ]}
         value={filter}
