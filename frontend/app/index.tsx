@@ -94,7 +94,10 @@ export default function Index() {
               <Text style={styles.wordmarkBright}>KHATA</Text>
             </Text>
             <View style={styles.rule} />
-            <Text style={styles.tagline}>Smart Tyre Inventory & Billing</Text>
+            <View style={styles.secureRow}>
+              <Text style={styles.secureIcon}>🔒</Text>
+              <Text style={styles.tagline}>Secure &amp; Protected</Text>
+            </View>
           </Animated.View>
         </View>
 
@@ -185,6 +188,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.onSurfaceSecondary,
     letterSpacing: 0.4,
+    fontWeight: "600",
+  },
+  secureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  secureIcon: {
+    fontSize: fontSize.base,
   },
   loaderRow: {
     position: "absolute",

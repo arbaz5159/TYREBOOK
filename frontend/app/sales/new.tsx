@@ -1,6 +1,25 @@
+// Multi-tyre New Sale / Bill screen (v2).
+//
+// Supports MULTIPLE different tyres per bill via `items[]`. On save, one
+// Sale document is written that contains every item, and every linked
+// tyre's stock is decremented safely inside a single Firestore
+// transaction (see `createMultiSale` in src/firebase/sales.ts).
+//
+// If a `tyreId` route param is passed (Dashboard search → tap), the
+// first item is pre-populated from that tyre's inventory row.
+//
+// Bill types:
+//   * "Tax Invoice"  → GST calc (existing settings)
+//   * "Kacha Bill"   → Sale Receipt, no GST
+//
+// Legacy top-level Sale fields (brand/model/size/quantity/sellingPrice
+// /totalValue) are still populated by `createMultiSale` (from item[0]
+// and aggregated totals) so the existing billing list, reports and PDF
+// paths keep rendering without changes.
+
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -22,10 +41,12 @@ import {
   VEHICLE_CATEGORIES,
   type CustomerType,
   type PaymentMode,
+  type SaleItem,
   type TyreClass,
   type VehicleCategoryId,
 } from "@/src/constants/inventory";
-import { createSale } from "@/src/firebase/sales";
+import { createMultiSale } from "@/src/firebase/sales";
+import { getTyre, listTyres } from "@/src/firebase/inventory";
 import { getShopSettings, reserveInvoiceNumber } from "@/src/firebase/master";
 import { addKhataEntry } from "@/src/firebase/khata";
 import { generateAndShareInvoice } from "@/src/utils/invoicePdf";
@@ -40,36 +61,59 @@ const BILL_KINDS: { value: BillKind; label: string; hint: string }[] = [
   { value: "Kacha Bill", label: "Sale Receipt", hint: "Cash Memo · No GST" },
 ];
 
+interface ItemDraft {
+  brand: string;
+  model: string;
+  size: string;
+  quantity: string;
+  sellingPrice: string;
+  priceList: string;
+  discountPercent: string;
+  linkedTyreId?: string;
+  availableStock?: number;
+}
+
+function blankItem(): ItemDraft {
+  return {
+    brand: "",
+    model: "",
+    size: "",
+    quantity: "",
+    sellingPrice: "",
+    priceList: "",
+    discountPercent: "0",
+  };
+}
+
 export default function NewSale() {
   const router = useRouter();
   const perms = usePermissions();
+  const params = useLocalSearchParams<{ tyreId?: string }>();
+
+  // Customer + bill-level state.
   const [customerName, setCustomer] = useState("");
   const [mobileNumber, setMobile] = useState("");
   const [vehicleNumber, setVehicle] = useState("");
   const [customerGstin, setCustomerGstin] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerStateCode, setCustomerStateCode] = useState("");
+  const [customerType, setCustomerType] = useState<CustomerType>("Retail");
   const [categoryId, setCategoryId] = useState<VehicleCategoryId>("car");
   const [tyreClass, setTyreClass] = useState<TyreClass>("new");
-  const [customerType, setCustomerType] = useState<CustomerType>("Retail");
-  const [brand, setBrand] = useState("");
-  const [model, setModel] = useState("");
-  const [size, setSize] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [sellingPrice, setPrice] = useState("");
-  const [priceList, setPriceList] = useState("");
-  const [discountPercent, setDiscountPercent] = useState("");
   const [gstPercent, setGst] = useState<number>(18);
   const [paymentMode, setPayment] = useState<PaymentMode>("Cash");
   const [billKind, setBillKind] = useState<BillKind>("Tax Invoice");
+
+  // Items list.
+  const [items, setItems] = useState<ItemDraft[]>([blankItem()]);
+
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [warn, setWarn] = useState<string | null>(null);
+  const [warns, setWarns] = useState<string[]>([]);
   const [pricingCfg, setPricingCfg] = useState<PricingConfig | null>(null);
   const isKacha = billKind === "Kacha Bill";
 
-  // Load owner-configured pricing defaults once. Applied when user picks a
-  // customer type so the default discount % is pre-filled from admin/pricing.
+  // Load pricing config + tyre-from-route once.
   useEffect(() => {
     (async () => {
       const cfg = await getPricingConfig();
@@ -78,30 +122,124 @@ export default function NewSale() {
     })();
   }, []);
 
-  const subtotal = (Number(quantity) || 0) * (Number(sellingPrice) || 0);
-  const effectiveGstPercent = isKacha ? 0 : gstPercent;
-  const gstAmount = (subtotal * effectiveGstPercent) / 100;
-  const total = subtotal + gstAmount;
+  useEffect(() => {
+    const tyreId = params.tyreId ? String(params.tyreId) : "";
+    if (!tyreId) return;
+    (async () => {
+      const t = await getTyre(tyreId);
+      if (!t) return;
+      setCategoryId(t.categoryId);
+      setTyreClass((t.tyreClass ?? "new") as TyreClass);
+      setItems([
+        {
+          brand: t.brand ?? "",
+          model: t.model ?? "",
+          size: t.size ?? "",
+          quantity: "1",
+          sellingPrice: String(t.sellingPrice ?? ""),
+          priceList: String(t.companyPriceList ?? t.mrp ?? ""),
+          discountPercent: "0",
+          linkedTyreId: t.id,
+          availableStock: t.currentStock ?? 0,
+        },
+      ]);
+    })();
+  }, [params.tyreId]);
 
-  // Discount math (per unit): if user typed priceList and discount% we compute
-  // the final selling price. Owner can override the discount % during billing.
-  const listNum = Number(priceList) || 0;
-  const discNum = Number(discountPercent) || 0;
-  const discountAmount = +(listNum * (discNum / 100)).toFixed(2);
-  const finalPrice = +(listNum - discountAmount).toFixed(2);
-  // Auto-sync the discounted final price into sellingPrice when list is set.
-  const effectiveSellingPrice = listNum > 0 ? finalPrice : Number(sellingPrice) || 0;
+  const updateItem = (idx: number, patch: Partial<ItemDraft>) => {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  };
+
+  const removeItem = (idx: number) => {
+    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
+  };
+
+  const addItem = () => {
+    setItems((prev) => [...prev, blankItem()]);
+  };
+
+  // Auto-link an item to inventory + snap in available stock when the user
+  // finishes typing brand+model+size. Cheap lookup — one listTyres() per
+  // (categoryId, tyreClass) filtered client-side.
+  const linkItemToStock = async (idx: number) => {
+    const item = items[idx];
+    if (!item.brand.trim() || !item.model.trim() || !item.size.trim()) return;
+    if (item.linkedTyreId) return; // already linked
+    try {
+      const list = await listTyres(categoryId, tyreClass);
+      const t = list.find(
+        (x) =>
+          x.brand.toLowerCase() === item.brand.trim().toLowerCase() &&
+          x.model.toLowerCase() === item.model.trim().toLowerCase() &&
+          x.size.toLowerCase() === item.size.trim().toLowerCase(),
+      );
+      if (t) {
+        updateItem(idx, {
+          linkedTyreId: t.id,
+          availableStock: t.currentStock ?? 0,
+          sellingPrice: item.sellingPrice || String(t.sellingPrice ?? ""),
+          priceList: item.priceList || String(t.companyPriceList ?? t.mrp ?? ""),
+        });
+      }
+    } catch (e) {
+      console.warn("[sale] linkItemToStock failed (non-fatal):", e);
+    }
+  };
+
+  // Per-line + grand totals (recomputed on every render — cheap).
+  const computed = useMemo(() => {
+    const lines = items.map((it) => {
+      const qty = Number(it.quantity) || 0;
+      const list = Number(it.priceList) || 0;
+      const discPct = Number(it.discountPercent) || 0;
+      const explicitPrice = Number(it.sellingPrice) || 0;
+      const discountAmount = list > 0 ? +(list * (discPct / 100)).toFixed(2) : 0;
+      const unitPrice = list > 0 ? +(list - discountAmount).toFixed(2) : explicitPrice;
+      const taxable = +(qty * unitPrice).toFixed(2);
+      const effectiveGst = isKacha ? 0 : gstPercent;
+      const totalGst = +((taxable * effectiveGst) / 100).toFixed(2);
+      const lineTotal = +(taxable + totalGst).toFixed(2);
+      return { qty, unitPrice, list, discPct, discountAmount, taxable, totalGst, lineTotal };
+    });
+    const subtotal = +lines.reduce((s, l) => s + l.taxable, 0).toFixed(2);
+    const gstTotal = +lines.reduce((s, l) => s + l.totalGst, 0).toFixed(2);
+    const grandTotal = +(subtotal + gstTotal).toFixed(2);
+    return { lines, subtotal, gstTotal, grandTotal };
+  }, [items, isKacha, gstPercent]);
 
   const onSave = async () => {
     setErr(null);
-    setWarn(null);
-    if (!customerName.trim() || !brand.trim() || !model.trim() || !size.trim()) {
-      setErr("Customer, brand, model and size are required.");
+    setWarns([]);
+    if (!customerName.trim()) {
+      setErr("Customer name is required.");
       return;
     }
-    if (!Number(quantity) || Number(quantity) <= 0) {
-      setErr("Quantity must be greater than zero.");
-      return;
+    // Basic per-item validation.
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.brand.trim() || !it.model.trim() || !it.size.trim()) {
+        setErr(`Item ${i + 1}: Brand, Model and Size are required.`);
+        return;
+      }
+      const qty = Number(it.quantity) || 0;
+      if (qty <= 0) {
+        setErr(`Item ${i + 1}: Quantity must be greater than zero.`);
+        return;
+      }
+      if (
+        typeof it.availableStock === "number" &&
+        qty > it.availableStock
+      ) {
+        setErr(
+          `Item ${i + 1}: Selling ${qty} but only ${it.availableStock} in stock.`,
+        );
+        return;
+      }
+      const unit = computed.lines[i].unitPrice;
+      if (unit <= 0) {
+        setErr(`Item ${i + 1}: Selling price must be greater than zero.`);
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -111,36 +249,39 @@ export default function NewSale() {
       const custStateCode = customerStateCode.trim() || shopStateCode;
       const interstate = Boolean(shopStateCode && custStateCode && custStateCode !== shopStateCode);
       const hsn = shopSnapshot.hsnCode || "4011";
-      const gstForSale = isKacha ? 0 : gstPercent;
-      const taxable = +(Number(quantity) * effectiveSellingPrice).toFixed(2);
-      const totalGst = +((taxable * gstForSale) / 100).toFixed(2);
-      const cgstAmount = interstate ? 0 : +(totalGst / 2).toFixed(2);
-      const sgstAmount = interstate ? 0 : +(totalGst - cgstAmount).toFixed(2);
-      const igstAmount = interstate ? totalGst : 0;
 
-      // Reserve the next number BEFORE writing so the persisted sale keeps a
-      // stable, human-readable reference (also increments the shop counter).
+      // Reserve ONE invoice number for the whole bill.
       const { number: invoiceNumber } = await reserveInvoiceNumber(billKind);
 
-      const salePayload = {
+      // Build SaleItem[] for persistence.
+      const saleItems: SaleItem[] = items.map((it, i) => {
+        const line = computed.lines[i];
+        return {
+          categoryId,
+          tyreClass,
+          brand: it.brand.trim(),
+          model: it.model.trim(),
+          size: it.size.trim(),
+          quantity: line.qty,
+          priceList: line.list,
+          discountPercent: line.discPct,
+          discountAmount: line.discountAmount,
+          sellingPrice: line.unitPrice,
+          gstPercent: isKacha ? 0 : gstPercent,
+          linkedTyreId: it.linkedTyreId,
+          taxable: line.taxable,
+          totalGst: line.totalGst,
+          lineTotal: line.lineTotal,
+        };
+      });
+
+      const res = await createMultiSale({
         customerName: customerName.trim(),
         mobileNumber: mobileNumber.trim(),
         vehicleNumber: vehicleNumber.trim().toUpperCase(),
         customerType,
         date: saleDate,
-        categoryId,
-        tyreClass,
-        brand: brand.trim(),
-        model: model.trim(),
-        size: size.trim(),
-        quantity: Number(quantity),
-        priceList: listNum,
-        discountPercent: discNum,
-        discountAmount,
-        sellingPrice: effectiveSellingPrice,
-        gstPercent: gstForSale,
         paymentMode,
-        // Billing metadata snapshot ------------------------------------------
         invoiceKind: billKind,
         invoiceNumber,
         hsnCode: hsn,
@@ -149,18 +290,12 @@ export default function NewSale() {
         customerStateCode: custStateCode || undefined,
         shopStateCode: shopStateCode || undefined,
         isInterstate: interstate,
-        cgstAmount,
-        sgstAmount,
-        igstAmount,
-      };
-      const res = await createSale(salePayload);
+        items: saleItems,
+      });
 
-      const grandTotal = +(taxable + totalGst).toFixed(2);
+      const grandTotal = computed.grandTotal;
 
-      // Post-write side effects: KhataBook entry + PDF share.
-      // These MUST NOT abort the redirect if they fail — the sale itself is
-      // already committed to Firestore. A failed khata write / PDF render
-      // shouldn't strand the user on the New Sale form.
+      // KhataBook entry (best-effort).
       if (paymentMode === "Credit" && mobileNumber.trim()) {
         try {
           await addKhataEntry({
@@ -168,7 +303,10 @@ export default function NewSale() {
             customerName: customerName.trim(),
             direction: "credit",
             amount: grandTotal,
-            note: `Sale ${brand.trim()} ${model.trim()} ${size.trim()}`,
+            note:
+              saleItems.length === 1
+                ? `Sale ${saleItems[0].brand} ${saleItems[0].model} ${saleItems[0].size}`
+                : `Sale · ${saleItems.length} items`,
             reference: invoiceNumber,
             date: saleDate,
           });
@@ -177,12 +315,48 @@ export default function NewSale() {
         }
       }
 
-      // Fire and forget the PDF share so the flow doesn't block on user.
+      // Fire-and-forget PDF share. Uses aggregated top-level fields;
+      // buildKachaBillHtml / buildGstInvoiceHtml pick up items[] via the
+      // sale object we pass through.
       try {
+        const first = saleItems[0];
         generateAndShareInvoice({
           invoiceType: billKind,
           invoiceNumber,
-          sale: { ...salePayload, id: res.id, totalValue: grandTotal, createdAt: saleDate },
+          sale: {
+            id: res.id,
+            customerName: customerName.trim(),
+            mobileNumber: mobileNumber.trim(),
+            vehicleNumber: vehicleNumber.trim().toUpperCase(),
+            customerType,
+            date: saleDate,
+            categoryId,
+            tyreClass,
+            brand: first.brand,
+            model: first.model,
+            size: first.size,
+            quantity: saleItems.reduce((s, i) => s + i.quantity, 0),
+            priceList: first.priceList,
+            discountPercent: first.discountPercent,
+            discountAmount: first.discountAmount,
+            sellingPrice: first.sellingPrice,
+            gstPercent: isKacha ? 0 : gstPercent,
+            paymentMode,
+            totalValue: grandTotal,
+            createdAt: saleDate,
+            invoiceKind: billKind,
+            invoiceNumber,
+            hsnCode: hsn,
+            customerGstin: customerGstin.trim().toUpperCase() || undefined,
+            customerAddress: customerAddress.trim() || undefined,
+            customerStateCode: custStateCode || undefined,
+            shopStateCode: shopStateCode || undefined,
+            isInterstate: interstate,
+            items: saleItems,
+            cgstAmount: interstate ? 0 : +(computed.gstTotal / 2).toFixed(2),
+            sgstAmount: interstate ? 0 : +(computed.gstTotal - +(computed.gstTotal / 2).toFixed(2)).toFixed(2),
+            igstAmount: interstate ? computed.gstTotal : 0,
+          },
           shop: shopSnapshot,
         }).catch((pdfErr) => {
           console.warn("[sale] PDF share failed (sale still saved):", pdfErr);
@@ -191,15 +365,15 @@ export default function NewSale() {
         console.warn("[sale] PDF share threw synchronously:", pdfErr);
       }
 
-      if (res.warning) {
-        setWarn(res.warning);
-        setTimeout(() => router.replace("/(tabs)/billing"), 1500);
+      if (res.warnings.length > 0) {
+        setWarns(res.warnings);
+        setTimeout(() => router.replace("/(tabs)/billing"), 1800);
       } else {
         router.replace("/(tabs)/billing");
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error("[sale] Save failed:", e);
-      setErr(e?.message ?? "Failed to save sale.");
+      setErr(e instanceof Error ? e.message : "Failed to save sale.");
     } finally {
       setSaving(false);
     }
@@ -285,7 +459,8 @@ export default function NewSale() {
               const pct =
                 defaults?.[v] ??
                 ({ Retail: 0, Wholesale: 15, Dealer: 25, Fleet: 20, Government: 10 } as Record<CustomerType, number>)[v];
-              setDiscountPercent(String(pct ?? 0));
+              // Apply default discount % to all current items.
+              setItems((prev) => prev.map((it) => ({ ...it, discountPercent: String(pct ?? 0) })));
             }}
             testIDPrefix="sale-custtype"
           />
@@ -306,70 +481,147 @@ export default function NewSale() {
             testIDPrefix="sale-cat"
           />
 
+          {/* Items --------------------------------------------------------- */}
           <View style={{ marginTop: spacing.lg }}>
-            <AppTextField label="Brand" value={brand} onChangeText={setBrand} placeholder="MRF, Apollo, CEAT…" testID="sale-brand" />
-            <AppTextField label="Model" value={model} onChangeText={setModel} placeholder="e.g. ZLX" testID="sale-model" />
-            <AppTextField label="Tyre Size" value={size} onChangeText={setSize} placeholder="e.g. 205/55 R16" testID="sale-size" />
-            <View style={{ flexDirection: "row" }}>
-              <View style={{ flex: 1, marginRight: spacing.sm }}>
-                <AppTextField label="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="number-pad" placeholder="0" testID="sale-qty" />
-              </View>
-              <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                <AppTextField label="Selling Price (₹)" value={sellingPrice} onChangeText={setPrice} keyboardType="numeric" placeholder="0" testID="sale-price" />
-              </View>
-            </View>
+            <Text style={styles.itemsHeader}>Tyres in this bill ({items.length})</Text>
+            {items.map((it, idx) => {
+              const line = computed.lines[idx];
+              const overStock =
+                typeof it.availableStock === "number" && line.qty > it.availableStock;
+              return (
+                <View key={idx} style={styles.itemCard} testID={`sale-item-${idx}`}>
+                  <View style={styles.itemHeaderRow}>
+                    <Text style={styles.itemBadge}>Item {idx + 1}</Text>
+                    {items.length > 1 ? (
+                      <TouchableOpacity
+                        onPress={() => removeItem(idx)}
+                        style={styles.itemRemove}
+                        testID={`sale-item-remove-${idx}`}
+                      >
+                        <MaterialCommunityIcons name="close" size={16} color={colors.error} />
+                        <Text style={styles.itemRemoveText}>Remove</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
 
-            <Text style={styles.label}>Dealer Discount Pricing (optional)</Text>
-            <View style={{ flexDirection: "row" }}>
-              <View style={{ flex: 1, marginRight: spacing.sm }}>
-                <AppTextField
-                  label="Company Price List (₹)"
-                  value={priceList}
-                  onChangeText={setPriceList}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  testID="sale-pricelist"
-                />
-              </View>
-              <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                <AppTextField
-                  label="Discount %"
-                  value={discountPercent}
-                  onChangeText={setDiscountPercent}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  editable={perms.canEditPrices}
-                  testID="sale-discount"
-                />
-              </View>
-            </View>
-            {listNum > 0 ? (
-              <View style={styles.discountCard} testID="discount-card">
-                <View style={styles.dcRow}>
-                  <Text style={styles.dcLabel}>Price List</Text>
-                  <Text style={styles.dcValue}>₹{listNum.toFixed(2)}</Text>
-                </View>
-                <View style={styles.dcRow}>
-                  <Text style={styles.dcLabel}>Discount ({discNum}%)</Text>
-                  <Text style={[styles.dcValue, { color: colors.error }]}>−₹{discountAmount.toFixed(2)}</Text>
-                </View>
-                <View style={[styles.dcRow, styles.dcBig]}>
-                  <Text style={styles.dcLabelBig}>Final Price</Text>
-                  <Text style={styles.dcValueBig}>₹{finalPrice.toFixed(2)}</Text>
-                </View>
-              </View>
-            ) : null}
+                  <AppTextField
+                    label="Brand"
+                    value={it.brand}
+                    onChangeText={(v) => updateItem(idx, { brand: v, linkedTyreId: undefined, availableStock: undefined })}
+                    onBlur={() => linkItemToStock(idx)}
+                    placeholder="MRF, Apollo, CEAT…"
+                    testID={`sale-item-brand-${idx}`}
+                  />
+                  <AppTextField
+                    label="Model"
+                    value={it.model}
+                    onChangeText={(v) => updateItem(idx, { model: v, linkedTyreId: undefined, availableStock: undefined })}
+                    onBlur={() => linkItemToStock(idx)}
+                    placeholder="e.g. ZLX"
+                    testID={`sale-item-model-${idx}`}
+                  />
+                  <AppTextField
+                    label="Tyre Size"
+                    value={it.size}
+                    onChangeText={(v) => updateItem(idx, { size: v, linkedTyreId: undefined, availableStock: undefined })}
+                    onBlur={() => linkItemToStock(idx)}
+                    placeholder="e.g. 205/55 R16"
+                    testID={`sale-item-size-${idx}`}
+                  />
+                  <View style={{ flexDirection: "row" }}>
+                    <View style={{ flex: 1, marginRight: spacing.sm }}>
+                      <AppTextField
+                        label="Quantity"
+                        value={it.quantity}
+                        onChangeText={(v) => updateItem(idx, { quantity: v })}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        testID={`sale-item-qty-${idx}`}
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                      <AppTextField
+                        label="Selling Price (₹)"
+                        value={it.sellingPrice}
+                        onChangeText={(v) => updateItem(idx, { sellingPrice: v })}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        testID={`sale-item-price-${idx}`}
+                      />
+                    </View>
+                  </View>
 
-            <Text style={styles.label}>GST %</Text>
-            {isKacha ? (
-              <Text style={styles.helper}>Sale Receipt does not charge GST.</Text>
+                  {typeof it.availableStock === "number" ? (
+                    <Text
+                      style={[
+                        styles.stockLine,
+                        overStock ? { color: colors.error } : { color: colors.success },
+                      ]}
+                      testID={`sale-item-stock-${idx}`}
+                    >
+                      {overStock
+                        ? `⚠︎ Only ${it.availableStock} in stock`
+                        : `✓ ${it.availableStock} in stock`}
+                    </Text>
+                  ) : it.brand.trim() && it.model.trim() && it.size.trim() ? (
+                    <Text style={styles.stockLine}>Not linked to inventory — stock won&apos;t be reduced.</Text>
+                  ) : null}
+
+                  {/* Optional dealer discount pricing per item. */}
+                  <View style={{ flexDirection: "row", marginTop: spacing.sm }}>
+                    <View style={{ flex: 1, marginRight: spacing.sm }}>
+                      <AppTextField
+                        label="Price List (opt)"
+                        value={it.priceList}
+                        onChangeText={(v) => updateItem(idx, { priceList: v })}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        testID={`sale-item-pricelist-${idx}`}
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                      <AppTextField
+                        label="Discount %"
+                        value={it.discountPercent}
+                        onChangeText={(v) => updateItem(idx, { discountPercent: v })}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        editable={perms.canEditPrices}
+                        testID={`sale-item-discount-${idx}`}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.itemTotalRow}>
+                    <Text style={styles.itemTotalLabel}>Line Total</Text>
+                    <Text style={styles.itemTotalValue}>₹{line.lineTotal.toFixed(2)}</Text>
+                  </View>
+                </View>
+              );
+            })}
+
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={addItem}
+              activeOpacity={0.85}
+              testID="sale-add-item"
+            >
+              <MaterialCommunityIcons name="plus-circle-outline" size={20} color={colors.brand} />
+              <Text style={styles.addBtnText}>+ Add Another Tyre</Text>
+            </TouchableOpacity>
+
+            {!isKacha ? (
+              <>
+                <Text style={styles.label}>GST %</Text>
+                <ChipRow
+                  options={GST_OPTIONS.map((n) => ({ value: n, label: `${n}%` }))}
+                  value={gstPercent}
+                  onChange={setGst}
+                  testIDPrefix="sale-gst"
+                />
+              </>
             ) : (
-              <ChipRow
-                options={GST_OPTIONS.map((n) => ({ value: n, label: `${n}%` }))}
-                value={gstPercent}
-                onChange={setGst}
-                testIDPrefix="sale-gst"
-              />
+              <Text style={styles.helper}>Sale Receipt does not charge GST.</Text>
             )}
 
             <Text style={styles.label}>Payment Mode</Text>
@@ -382,14 +634,18 @@ export default function NewSale() {
           </View>
 
           <View style={styles.summary}>
-            <SummaryRow label="Subtotal" value={`₹${subtotal.toFixed(2)}`} />
+            <SummaryRow label="Subtotal" value={`₹${computed.subtotal.toFixed(2)}`} />
             {!isKacha ? (
-              <SummaryRow label={`GST (${gstPercent}%)`} value={`₹${gstAmount.toFixed(2)}`} />
+              <SummaryRow label={`GST (${gstPercent}%)`} value={`₹${computed.gstTotal.toFixed(2)}`} />
             ) : null}
-            <SummaryRow label="Total" value={`₹${total.toFixed(2)}`} bold />
+            <SummaryRow label="Grand Total" value={`₹${computed.grandTotal.toFixed(2)}`} bold />
           </View>
 
-          {warn ? <Text style={[styles.err, { color: colors.warning }]}>{warn}</Text> : null}
+          {warns.length > 0
+            ? warns.map((w, i) => (
+                <Text key={i} style={[styles.err, { color: colors.warning }]}>{w}</Text>
+              ))
+            : null}
           {err ? <Text style={styles.err}>{err}</Text> : null}
         </ScrollView>
 
@@ -463,18 +719,85 @@ const styles = StyleSheet.create({
     borderTopColor: colors.divider,
     backgroundColor: colors.surface,
   },
-  discountCard: {
-    marginTop: spacing.md,
+  itemsHeader: {
+    fontSize: fontSize.base,
+    fontWeight: "800",
+    color: colors.onSurface,
+    marginBottom: spacing.sm,
+  },
+  itemCard: {
     padding: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: colors.brandTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.md,
   },
-  dcRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
-  dcLabel: { fontSize: fontSize.sm, color: colors.onBrandTertiary },
-  dcValue: { fontSize: fontSize.sm, color: colors.onBrandTertiary, fontWeight: "700" },
-  dcBig: { marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.15)" },
-  dcLabelBig: { fontSize: fontSize.base, fontWeight: "800", color: colors.onBrandTertiary },
-  dcValueBig: { fontSize: fontSize.lg, fontWeight: "800", color: colors.brandPrimary },
+  itemHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  itemBadge: {
+    fontSize: fontSize.xs,
+    fontWeight: "800",
+    color: colors.brand,
+    letterSpacing: 0.5,
+  },
+  itemRemove: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  itemRemoveText: {
+    color: colors.error,
+    fontWeight: "700",
+    fontSize: fontSize.xs,
+  },
+  stockLine: {
+    fontSize: fontSize.xs,
+    fontWeight: "600",
+    marginTop: 4,
+    color: colors.muted,
+  },
+  itemTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  itemTotalLabel: {
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceSecondary,
+    fontWeight: "600",
+  },
+  itemTotalValue: {
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+    fontWeight: "800",
+  },
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTertiary,
+    marginBottom: spacing.md,
+  },
+  addBtnText: {
+    color: colors.brand,
+    fontWeight: "800",
+    fontSize: fontSize.sm,
+  },
 });
 
 const sumStyles = StyleSheet.create({

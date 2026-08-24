@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -20,6 +21,7 @@ import { getShop, type Shop } from "@/src/firebase/shops";
 import { setActiveShopId, useActiveShopId } from "@/src/firebase/tenant";
 import { getAppSettings } from "@/src/utils/settings";
 import { colors, fontSize, radius, spacing } from "@/src/theme/tokens";
+import type { Tyre } from "@/src/constants/inventory";
 
 interface Stats {
   todayPurchase: number;
@@ -78,6 +80,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>(ZERO);
   const [refreshing, setRefreshing] = useState(false);
   const [impersonatedShop, setImpersonatedShop] = useState<Shop | null>(null);
+  const [inventory, setInventory] = useState<Tyre[]>([]);
+  const [sizeQuery, setSizeQuery] = useState("");
 
   // Load the current shop info when the Super Admin is impersonating a
   // tenant so we can show the "You are viewing … · Return to Super
@@ -118,6 +122,7 @@ export default function Dashboard() {
       else console.warn("[dashboard] listSales failed:", sRes.reason);
       if (tRes.status === "fulfilled") tyres = tRes.value;
       else console.warn("[dashboard] listTyres failed:", tRes.reason);
+      setInventory(tyres);
       if (cRes.status === "fulfilled") customers = cRes.value;
       else console.warn("[dashboard] listCustomers failed:", cRes.reason);
       appSettings =
@@ -197,6 +202,30 @@ export default function Dashboard() {
     setRefreshing(false);
   };
 
+  // -------------------------------------------------------------------------
+  // Search current shop's inventory by tyre size (also matches brand/model
+  // as a bonus). Fires the moment the user types; when a result is tapped we
+  // hop straight to New Sale with the tyre pre-populated as Item 1.
+  // -------------------------------------------------------------------------
+  const matchingTyres = useMemo(() => {
+    const q = sizeQuery.trim().toLowerCase();
+    if (q.length < 1) return [];
+    return inventory
+      .filter((t) => {
+        const size = (t.size ?? "").toLowerCase();
+        const brand = (t.brand ?? "").toLowerCase();
+        const model = (t.model ?? "").toLowerCase();
+        return size.includes(q) || brand.includes(q) || model.includes(q);
+      })
+      .filter((t) => (t.currentStock ?? 0) > 0)
+      .slice(0, 8);
+  }, [inventory, sizeQuery]);
+
+  const openNewSaleWith = (tyre: Tyre) => {
+    setSizeQuery("");
+    router.push({ pathname: "/sales/new", params: { tyreId: tyre.id } });
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {/* Sticky header */}
@@ -219,7 +248,64 @@ export default function Dashboard() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        keyboardShouldPersistTaps="handled"
       >
+        {/* Search by Tyre Size — moved to the top so the owner can jump
+            straight into a bill from any inventory match. */}
+        <View style={styles.searchWrap} testID="dashboard-size-search">
+          <View style={styles.searchBox}>
+            <MaterialCommunityIcons name="magnify" size={20} color={colors.brand} />
+            <TextInput
+              placeholder="Search by tyre size (e.g. 90/100-10, 205/55 R16)"
+              placeholderTextColor={colors.muted}
+              value={sizeQuery}
+              onChangeText={setSizeQuery}
+              style={styles.searchInput}
+              autoCorrect={false}
+              returnKeyType="search"
+              testID="dashboard-size-search-input"
+            />
+            {sizeQuery.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setSizeQuery("")}
+                testID="dashboard-size-search-clear"
+              >
+                <MaterialCommunityIcons name="close-circle" size={18} color={colors.muted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {sizeQuery.trim().length > 0 ? (
+            matchingTyres.length > 0 ? (
+              <View style={styles.searchResults}>
+                {matchingTyres.map((t) => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={styles.searchRow}
+                    onPress={() => openNewSaleWith(t)}
+                    activeOpacity={0.85}
+                    testID={`dashboard-tyre-hit-${t.id}`}
+                  >
+                    <View style={styles.searchRowIcon}>
+                      <MaterialCommunityIcons name="tire" size={18} color={colors.brandPrimary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.searchRowTitle} numberOfLines={1}>
+                        {t.brand} {t.model}
+                      </Text>
+                      <Text style={styles.searchRowSub} numberOfLines={1}>
+                        {t.size} · Stock {t.currentStock ?? 0} · {inr(t.sellingPrice ?? 0)}
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons name="cart-plus" size={20} color={colors.brand} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.searchEmpty}>No matching tyre in current stock.</Text>
+            )
+          ) : null}
+        </View>
+
         {/* Super Admin impersonation banner — visible ONLY when a
             super_admin has picked a shop via "Enter this shop" in the
             Super Admin panel. Gives them a one-tap exit back to the
@@ -394,18 +480,6 @@ export default function Dashboard() {
             </View>
           </View>
           <MaterialCommunityIcons name="chevron-right" size={22} color={colors.onBrandPrimary} />
-        </TouchableOpacity>
-
-        {/* Search by Tyre Size — secondary quick lookup */}
-        <TouchableOpacity
-          style={styles.sizeSearchLink}
-          onPress={() => router.push("/tyre-size-search")}
-          activeOpacity={0.85}
-          testID="home-search-by-tyre-size"
-        >
-          <MaterialCommunityIcons name="magnify" size={18} color={colors.brand} />
-          <Text style={styles.sizeSearchLinkText}>Search by Tyre Size</Text>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.brand} />
         </TouchableOpacity>
 
         {/* Quick Actions */}
@@ -802,5 +876,68 @@ const styles = StyleSheet.create({
     color: colors.brand,
     fontWeight: "700",
     fontSize: fontSize.sm,
+  },
+
+  // Top-of-Dashboard inline tyre-size search + results.
+  searchWrap: {
+    marginBottom: spacing.md,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+    padding: 0,
+  },
+  searchResults: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  searchRowIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchRowTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: "700",
+    color: colors.onSurface,
+  },
+  searchRowSub: {
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceSecondary,
+    marginTop: 2,
+  },
+  searchEmpty: {
+    marginTop: spacing.sm,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    paddingHorizontal: spacing.md,
   },
 });

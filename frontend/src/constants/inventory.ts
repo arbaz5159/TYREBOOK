@@ -142,6 +142,11 @@ export interface Sale {
   linkedTyreId?: string;
   totalValue: number;
   createdAt?: number;
+  // -------- Multi-tyre billing (v2, additive) --------------------------------
+  // When present, `items` is the source of truth. Top-level fields above are
+  // kept populated from `items[0]` + aggregate totals so legacy list rows,
+  // reports and PDFs continue to render without changes.
+  items?: SaleItem[];
   // -------- Billing / Invoice metadata (added for full GST + Kacha support) --
   invoiceKind?: "Tax Invoice" | "Kacha Bill";
   invoiceNumber?: string;
@@ -154,6 +159,30 @@ export interface Sale {
   cgstAmount?: number;
   sgstAmount?: number;
   igstAmount?: number;
+}
+
+/**
+ * One line item inside a multi-tyre Sale. Optional stock link (`linkedTyreId`)
+ * allows the transactional stock decrement in `createMultiSale` to target
+ * the exact tyre doc even when the brand/model text has minor casing drift.
+ */
+export interface SaleItem {
+  categoryId: VehicleCategoryId;
+  tyreClass: TyreClass;
+  brand: string;
+  model: string;
+  size: string;
+  quantity: number;
+  priceList: number;
+  discountPercent: number;
+  discountAmount: number;
+  sellingPrice: number;
+  gstPercent: number;
+  linkedTyreId?: string;
+  // Per-line taxable + gst breakdown, snapshotted at sale time.
+  taxable: number;
+  totalGst: number;
+  lineTotal: number;
 }
 
 export interface Customer {

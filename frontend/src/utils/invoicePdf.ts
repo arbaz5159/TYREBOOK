@@ -129,7 +129,51 @@ export function buildGstInvoiceHtml(opts: BuildInvoiceOptions): string {
     (interstate ? "" : shopStateLine);
 
   const desc = `${sale.brand ? sale.brand.toUpperCase() : ""}${sale.brand ? " " : ""}${sale.model || ""}${sale.size ? " " + sale.size : ""}`.trim();
+  void desc; // legacy single-line description — kept for future single-item fallback rendering
   const categoryLabel = CATEGORY_LABEL[sale.categoryId] || "";
+  // Multi-item support: build one row per SaleItem when present, otherwise
+  // fall back to the legacy single-line render.
+  const gstItems = Array.isArray(sale.items) && sale.items.length > 0
+    ? sale.items
+    : [{
+        brand: sale.brand,
+        model: sale.model,
+        size: sale.size,
+        quantity: qty,
+        priceList: rate,
+        sellingPrice: rate,
+        discountPercent: discPct,
+        discountAmount: discPerUnit,
+        taxable,
+        totalGst,
+        lineTotal: grandTotal,
+        gstPercent: gstPct,
+      }];
+  const gstItemsHtml = gstItems
+    .map((it, i) => {
+      const iDesc = `${(it.brand || "").toUpperCase()}${it.brand ? " " : ""}${it.model || ""}${it.size ? " " + it.size : ""}`.trim() || "Tyre";
+      const iQty = Number(it.quantity) || 0;
+      const iRate = Number(it.priceList) || Number(it.sellingPrice) || 0;
+      const iDiscPct = Number(it.discountPercent) || 0;
+      const iTaxable = Number((it as { taxable?: number }).taxable ?? Math.max(0, iQty * iRate * (1 - iDiscPct / 100))) || 0;
+      const iGstPct = Number((it as { gstPercent?: number }).gstPercent ?? gstPct) || 0;
+      return `<tr>
+        <td class="center">${i + 1}</td>
+        <td>
+          <div><b>${esc(iDesc)}</b></div>
+        </td>
+        <td class="center">${esc(hsn)}</td>
+        <td class="center">${iGstPct}%</td>
+        <td class="center">${iQty} Nos.</td>
+        <td class="right money">${inr(iRate)}</td>
+        <td class="center">Nos.</td>
+        <td class="center">${iDiscPct > 0 ? iDiscPct + " %" : "-"}</td>
+        <td class="right money">${inr(iTaxable)}</td>
+      </tr>`;
+    })
+    .join("");
+  const gstTotalQty = gstItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+  const gstFillerCount = Math.max(0, 6 - gstItems.length);
 
   return `<!doctype html>
 <html><head><meta charset="utf-8" />
@@ -249,22 +293,9 @@ export function buildGstInvoiceHtml(opts: BuildInvoiceOptions): string {
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td class="center">1</td>
-        <td>
-          <div><b>${esc(desc || "Tyre")}</b></div>
-          ${sale.tyreClass && sale.tyreClass !== "new" ? `<div style="font-size:10px;">(${esc(sale.tyreClass)} tyre)</div>` : ""}
-        </td>
-        <td class="center">${esc(hsn)}</td>
-        <td class="center">${gstPct}%</td>
-        <td class="center">${qty} Nos.</td>
-        <td class="right money">${inr(rate)}</td>
-        <td class="center">Nos.</td>
-        <td class="center">${discPct > 0 ? discPct + " %" : "-"}</td>
-        <td class="right money">${inr(taxable)}</td>
-      </tr>
+      ${gstItemsHtml}
       <!-- filler rows to keep the tabular look -->
-      ${Array.from({ length: 6 })
+      ${Array.from({ length: gstFillerCount })
         .map(
           () => `<tr>
             <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
@@ -300,7 +331,7 @@ export function buildGstInvoiceHtml(opts: BuildInvoiceOptions): string {
         <td class="right"><b>Total</b></td>
         <td>&nbsp;</td>
         <td>&nbsp;</td>
-        <td class="center"><b>${qty} Nos.</b></td>
+        <td class="center"><b>${gstTotalQty} Nos.</b></td>
         <td>&nbsp;</td>
         <td>&nbsp;</td>
         <td>&nbsp;</td>
@@ -420,9 +451,35 @@ export function buildKachaBillHtml(opts: BuildInvoiceOptions): string {
   const qty = Number(sale.quantity) || 0;
   const rate = Number(sale.sellingPrice) || 0;
   const amount = +(qty * rate).toFixed(2);
-  const rounded = Math.round(amount);
 
   const desc = `${sale.brand ? sale.brand : ""}${sale.model ? " " + sale.model : ""}${sale.size ? " " + sale.size : ""}`.trim() || "Tyre";
+  void desc; // legacy — kept for future single-line fallback rendering
+  // Multi-item support: if the sale has an `items[]` array we render one row
+  // per item; otherwise fall back to the single-line legacy render.
+  const items = Array.isArray(sale.items) && sale.items.length > 0
+    ? sale.items
+    : [{ brand: sale.brand, model: sale.model, size: sale.size, quantity: qty, sellingPrice: rate, lineTotal: amount }];
+  const itemsHtml = items
+    .map((it, i) => {
+      const iDesc = `${it.brand || ""}${it.model ? " " + it.model : ""}${it.size ? " " + it.size : ""}`.trim() || "Tyre";
+      const iQty = Number(it.quantity) || 0;
+      const iRate = Number(it.sellingPrice) || 0;
+      const iAmount = Number((it as { lineTotal?: number }).lineTotal ?? iQty * iRate) || 0;
+      return `<tr>
+        <td class="center">${i + 1}</td>
+        <td><b>${esc(iDesc)}</b></td>
+        <td class="center">${iQty}</td>
+        <td class="right money">${inr(iRate)}</td>
+        <td class="right money">${inr(iAmount)}</td>
+      </tr>`;
+    })
+    .join("");
+  const itemsTotalQty = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+  const itemsTotalAmount = items.reduce(
+    (s, it) => s + (Number((it as { lineTotal?: number }).lineTotal ?? (Number(it.quantity) || 0) * (Number(it.sellingPrice) || 0)) || 0),
+    0,
+  );
+  const paddingRowsCount = Math.max(0, 8 - items.length);
 
   return `<!doctype html>
 <html><head><meta charset="utf-8" />
@@ -496,14 +553,8 @@ export function buildKachaBillHtml(opts: BuildInvoiceOptions): string {
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td class="center">1</td>
-        <td><b>${esc(desc)}</b></td>
-        <td class="center">${qty}</td>
-        <td class="right money">${inr(rate)}</td>
-        <td class="right money">${inr(amount)}</td>
-      </tr>
-      ${Array.from({ length: 8 })
+      ${itemsHtml}
+      ${Array.from({ length: paddingRowsCount })
         .map(
           () => `<tr>
             <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
@@ -512,9 +563,9 @@ export function buildKachaBillHtml(opts: BuildInvoiceOptions): string {
         .join("")}
       <tr>
         <td colspan="2" class="right"><b>Total</b></td>
-        <td class="center"><b>${qty}</b></td>
+        <td class="center"><b>${itemsTotalQty}</b></td>
         <td>&nbsp;</td>
-        <td class="right money"><b>${inr(rounded)}</b></td>
+        <td class="right money"><b>${inr(Math.round(itemsTotalAmount))}</b></td>
       </tr>
     </tbody>
   </table>
@@ -523,7 +574,7 @@ export function buildKachaBillHtml(opts: BuildInvoiceOptions): string {
   <table class="grid" style="border-top:none;">
     <tr>
       <td class="right" style="font-style: italic;">
-        (${esc(amountInWords(rounded))})
+        (${esc(amountInWords(Math.round(itemsTotalAmount)))})
       </td>
     </tr>
   </table>

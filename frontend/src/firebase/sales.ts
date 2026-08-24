@@ -293,3 +293,192 @@ export async function deleteSale(id: string): Promise<void> {
   }
   await deleteDoc(tenantDoc(db, SALES, id));
 }
+
+// ---------------------------------------------------------------------------
+// MULTI-TYRE SALE (v2)
+// ---------------------------------------------------------------------------
+// Creates ONE Sale document that contains multiple `items[]` and safely
+// decrements the stock of EVERY linked tyre in a single Firestore
+// transaction. Race-safe: two concurrent multi-sales touching the same
+// tyre re-read authoritative stock inside the transaction.
+
+export interface MultiSaleInput {
+  // Customer + bill metadata (mirrors createSale's shape minus per-item fields)
+  customerName: string;
+  mobileNumber: string;
+  vehicleNumber: string;
+  customerType: import("@/src/constants/inventory").CustomerType;
+  date: number;
+  paymentMode: import("@/src/constants/inventory").PaymentMode;
+  invoiceKind?: "Tax Invoice" | "Kacha Bill";
+  invoiceNumber?: string;
+  hsnCode?: string;
+  customerGstin?: string;
+  customerAddress?: string;
+  customerStateCode?: string;
+  shopStateCode?: string;
+  isInterstate?: boolean;
+  // Items list — each with pre-computed taxable/totalGst/lineTotal.
+  items: import("@/src/constants/inventory").SaleItem[];
+}
+
+export async function createMultiSale(
+  input: MultiSaleInput,
+): Promise<{ id: string; warnings: string[] }> {
+  const warnings: string[] = [];
+  if (!input.items || input.items.length === 0) {
+    throw new Error("At least one tyre item is required.");
+  }
+
+  // Aggregate totals for the top-level Sale (legacy consumers).
+  const aggTaxable = +input.items.reduce((s, i) => s + i.taxable, 0).toFixed(2);
+  const aggGst = +input.items.reduce((s, i) => s + i.totalGst, 0).toFixed(2);
+  const grandTotal = +(aggTaxable + aggGst).toFixed(2);
+  const totalQty = input.items.reduce((s, i) => s + i.quantity, 0);
+  const interstate = Boolean(input.isInterstate);
+  const cgstAmount = interstate ? 0 : +(aggGst / 2).toFixed(2);
+  const sgstAmount = interstate ? 0 : +(aggGst - cgstAmount).toFixed(2);
+  const igstAmount = interstate ? aggGst : 0;
+
+  // Snapshot first item into top-level fields so existing billing list,
+  // reports and single-item PDF paths keep rendering. The `items` array
+  // is the source of truth for multi-tyre bills.
+  const first = input.items[0];
+
+  // Customer upsert (outside transaction — same rationale as createSale).
+  const legacyForCustomer: Omit<Sale, "id"> = {
+    customerName: input.customerName,
+    mobileNumber: input.mobileNumber,
+    vehicleNumber: input.vehicleNumber,
+    customerType: input.customerType,
+    date: input.date,
+    categoryId: first.categoryId,
+    tyreClass: first.tyreClass,
+    brand: first.brand,
+    model: first.model,
+    size: first.size,
+    quantity: totalQty,
+    priceList: first.priceList,
+    discountPercent: first.discountPercent,
+    discountAmount: first.discountAmount,
+    sellingPrice: first.sellingPrice,
+    gstPercent: first.gstPercent,
+    paymentMode: input.paymentMode,
+    linkedTyreId: first.linkedTyreId,
+    totalValue: grandTotal,
+    createdAt: Date.now(),
+  };
+  await upsertCustomer(legacyForCustomer);
+
+  const salePayload: Omit<Sale, "id"> = {
+    ...legacyForCustomer,
+    items: input.items,
+    invoiceKind: input.invoiceKind,
+    invoiceNumber: input.invoiceNumber,
+    hsnCode: input.hsnCode,
+    customerGstin: input.customerGstin,
+    customerAddress: input.customerAddress,
+    customerStateCode: input.customerStateCode,
+    shopStateCode: input.shopStateCode,
+    isInterstate: interstate,
+    cgstAmount,
+    sgstAmount,
+    igstAmount,
+  };
+
+  const db = getDb();
+  if (!db) {
+    // Local fallback: decrement each linked tyre sequentially.
+    for (const item of input.items) {
+      if (!item.linkedTyreId) {
+        warnings.push(
+          `${item.brand} ${item.model} ${item.size}: not in inventory, stock NOT reduced.`,
+        );
+        continue;
+      }
+      const tyres = await listTyres(item.categoryId);
+      const t = tyres.find((x) => x.id === item.linkedTyreId);
+      if (!t) {
+        warnings.push(
+          `${item.brand} ${item.model} ${item.size}: not in inventory, stock NOT reduced.`,
+        );
+        continue;
+      }
+      const newStock = (t.currentStock ?? 0) - item.quantity;
+      if (newStock < 0) {
+        warnings.push(
+          `${item.brand} ${item.model} ${item.size}: selling ${item.quantity} but only ${t.currentStock} in stock.`,
+        );
+      }
+      await updateTyre(t.id, { currentStock: Math.max(0, newStock) });
+    }
+    const list = await readLocalSales();
+    const id = localId();
+    list.push({ ...salePayload, id });
+    await writeLocalSales(list);
+    return { id, warnings };
+  }
+
+  const saleRef = doc(tenantCol(db, SALES));
+
+  // Build tyre refs BEFORE the transaction (transactions can't run queries).
+  const tyreRefs = input.items.map((item) =>
+    item.linkedTyreId ? tenantDoc(db, "tyres", item.linkedTyreId) : null,
+  );
+
+  const txWarnings = await runTransaction(db, async (tx) => {
+    const localWarnings: string[] = [];
+    // Read ALL tyre docs FIRST — Firestore transactions require all reads
+    // to precede all writes.
+    const snaps = [];
+    for (let i = 0; i < input.items.length; i++) {
+      const ref = tyreRefs[i];
+      snaps.push(ref ? await tx.get(ref) : null);
+    }
+    // Then apply writes (stock decrement per item).
+    for (let i = 0; i < input.items.length; i++) {
+      const item = input.items[i];
+      const ref = tyreRefs[i];
+      const snap = snaps[i];
+      if (!ref || !snap) {
+        localWarnings.push(
+          `${item.brand} ${item.model} ${item.size}: not in inventory, stock NOT reduced.`,
+        );
+        continue;
+      }
+      if (!snap.exists()) {
+        localWarnings.push(
+          `${item.brand} ${item.model} ${item.size}: tyre doc missing, stock NOT reduced.`,
+        );
+        continue;
+      }
+      const authoritativeStock = Number(
+        (snap.data() as { currentStock?: number })?.currentStock ?? 0,
+      );
+      const newStock = authoritativeStock - item.quantity;
+      if (newStock < 0) {
+        localWarnings.push(
+          `${item.brand} ${item.model} ${item.size}: selling ${item.quantity} but only ${authoritativeStock} in stock.`,
+        );
+      }
+      tx.update(
+        ref,
+        stripUndefined({
+          currentStock: Math.max(0, newStock),
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    }
+    tx.set(
+      saleRef,
+      stripUndefined({
+        ...salePayload,
+        createdAt: serverTimestamp(),
+      }),
+    );
+    return localWarnings;
+  });
+
+  warnings.push(...txWarnings);
+  return { id: saleRef.id, warnings };
+}
