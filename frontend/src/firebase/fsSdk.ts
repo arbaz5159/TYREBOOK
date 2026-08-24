@@ -25,36 +25,50 @@
 // `Firestore` instance passed as the first argument matches the module
 // the modular functions live in.
 //
-// TYPE-SAFETY NOTE
-// ----------------
-// TypeScript is anchored to the JS SDK types (they're the fuller ones,
-// and every consumer is already written against them). On Native we
-// treat the RNFB module as `typeof import('firebase/firestore')` via an
-// `unknown` cast — safe because the modular APIs are structurally
-// identical for the surface we consume.
+// IMPORTANT (Message 552 regression fix)
+// --------------------------------------
+// The JS SDK is brought in via a STATIC `import * as` — NOT `require()`.
+// Metro's Web bundler resolves `import` and `require` through different
+// package.json fields (`browser`/`module` vs `main`). Using both would
+// materialise TWO copies of `firebase/firestore` in the bundle, each with
+// its own `Firestore` class prototype, so `doc()` from copy A rejects a
+// Firestore instance produced by `getFirestore()` from copy B with the
+// exact "Expected first argument to doc() to be a CollectionReference,
+// a DocumentReference or FirebaseFirestore" error.
+//
+// Metro DOES ignore the `import` in the Web bundle when Platform.OS is
+// stripped by tree-shaking? No — Metro can't statically fold Platform.OS.
+// So `import * as jsSdk from "firebase/firestore"` stays in every
+// platform's bundle, which is exactly what we want on Web (and harmless
+// on Native, where we override with the RNFB module below).
 
 import { Platform } from "react-native";
+import * as jsSdk from "firebase/firestore";
 
-type FirestoreSdk = typeof import("firebase/firestore");
+type FirestoreSdk = typeof jsSdk;
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const jsSdk = require("firebase/firestore") as FirestoreSdk;
-
+// Resolve the active SDK ONCE at module init.
+//   * Web  → JS SDK (statically imported above — same module instance
+//            as every other file that imports from "firebase/firestore").
+//   * Native → RNFB via runtime require so the Web bundle never even
+//            attempts to resolve the native-only module.
+let sdk: FirestoreSdk = jsSdk;
 let nativeSdk: FirestoreSdk | null = null;
+
 if (Platform.OS !== "web") {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     nativeSdk = require("@react-native-firebase/firestore") as unknown as FirestoreSdk;
+    sdk = nativeSdk;
   } catch {
     // RNFB native module unavailable (e.g. Expo Go). Fall back to the JS
     // SDK so the app doesn't crash — auth-guarded reads will still fail
     // with permission-denied in that environment, which is the same
     // behaviour as before this fix.
     nativeSdk = null;
+    sdk = jsSdk;
   }
 }
-
-const sdk: FirestoreSdk = (Platform.OS !== "web" && nativeSdk) ? nativeSdk : jsSdk;
 
 // Re-export the modular Firestore API surface used across the codebase.
 // Web and Native resolve to different underlying modules at runtime, but
