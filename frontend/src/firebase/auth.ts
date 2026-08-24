@@ -423,19 +423,67 @@ async function hydrateAppUser(
 //   * email/password (Super Admin, Shop Admin fallback) → JS SDK signs in first,
 //     then we mirror into RNFB here so RNFB Firestore reads/writes have
 //     `request.auth.uid == user.uid`.
-// Safe by design: same Firebase project, same credentials, best-effort — a
-// failure here does NOT block the JS SDK-side login (the Web branch of
-// hydrate still works if the RNFB module is somehow missing).
+//
+// HARD-FAIL contract (per Message 549 Point 2): on Native, if the RNFB mirror
+// cannot establish an authenticated `currentUser` for the same email, we
+// THROW. Callers (signIn / signUp) propagate the error to the UI so the
+// user sees a clear failure instead of hitting permission-denied on every
+// downstream Firestore read. Web path is a no-op — behaviour unchanged.
 async function mirrorEmailSignInToRnfb(email: string, password: string): Promise<void> {
-  if (Platform.OS === "web") return;
+  if (Platform.OS === "web") return; // Web unchanged.
+  let rnfb: typeof import("@react-native-firebase/auth");
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const rnfb = require("@react-native-firebase/auth") as typeof import("@react-native-firebase/auth");
-    const a = rnfb.getAuth();
-    if (a.currentUser && a.currentUser.email?.toLowerCase() === email.toLowerCase()) return;
-    await rnfb.signInWithEmailAndPassword(a, email, password);
+    rnfb = require("@react-native-firebase/auth") as typeof import("@react-native-firebase/auth");
   } catch (e) {
-    console.warn("[auth] RNFB email sign-in mirror failed (non-fatal):", e);
+    // RNFB module truly unavailable at runtime (Expo Go, missing native
+    // link). We cannot authenticate the RNFB Firestore path — hard-fail
+    // instead of silently continuing into permission-denied reads.
+    console.error("[auth] RNFB native auth module not available:", e);
+    throw new Error(
+      "This build cannot log in with email/password — the native Firebase Auth module is not linked. Please install the latest production APK.",
+    );
+  }
+  const a = rnfb.getAuth();
+  const alreadyRight =
+    !!a.currentUser && a.currentUser.email?.toLowerCase() === email.toLowerCase();
+  if (!alreadyRight) {
+    try {
+      await rnfb.signInWithEmailAndPassword(a, email, password);
+    } catch (e) {
+      console.error("[auth] RNFB email sign-in mirror failed:", e);
+      // Best-effort: also sign out of JS SDK Auth so app doesn't land in a
+      // half-authenticated state where JS-SDK has a user but RNFB (which
+      // Firestore now authenticates against) does not.
+      const jsAuth = getFirebaseAuth();
+      if (jsAuth) {
+        try {
+          await fbSignOut(jsAuth);
+        } catch {
+          /* noop */
+        }
+      }
+      const msg = e instanceof Error ? e.message : String(e ?? "");
+      throw new Error(
+        `Login failed on device: ${msg || "could not authenticate Firestore session"}. Please try again.`,
+      );
+    }
+  }
+  // Post-condition: RNFB Auth must now have an authenticated currentUser
+  // for the same email. If not, refuse to continue.
+  const post = rnfb.getAuth().currentUser;
+  if (!post || post.email?.toLowerCase() !== email.toLowerCase()) {
+    const jsAuth = getFirebaseAuth();
+    if (jsAuth) {
+      try {
+        await fbSignOut(jsAuth);
+      } catch {
+        /* noop */
+      }
+    }
+    throw new Error(
+      "Login failed on device: authenticated Firestore session could not be established. Please try again.",
+    );
   }
 }
 
@@ -443,19 +491,10 @@ async function mirrorEmailSignUpToRnfb(
   email: string,
   password: string,
 ): Promise<void> {
-  if (Platform.OS === "web") return;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const rnfb = require("@react-native-firebase/auth") as typeof import("@react-native-firebase/auth");
-    const a = rnfb.getAuth();
-    if (a.currentUser && a.currentUser.email?.toLowerCase() === email.toLowerCase()) return;
-    // The JS SDK already created the Firebase Auth user — signIn (not
-    // createUser) is the right RNFB call here, otherwise we'd hit
-    // "email-already-in-use".
-    await rnfb.signInWithEmailAndPassword(a, email, password);
-  } catch (e) {
-    console.warn("[auth] RNFB email sign-up mirror failed (non-fatal):", e);
-  }
+  // Same contract as sign-in: hard-fail on Native. Sign-up on JS SDK just
+  // created the Firebase Auth user, so RNFB `signInWithEmailAndPassword`
+  // with the exact same credentials will land in that same account.
+  await mirrorEmailSignInToRnfb(email, password);
 }
 
 export async function signIn(email: string, password: string): Promise<AppUser> {
