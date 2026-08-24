@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Redirect, useRouter } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs } from "@/src/firebase/fsSdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,

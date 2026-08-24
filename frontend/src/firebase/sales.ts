@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
-} from "firebase/firestore";
+} from "./fsSdk";
 
 import { storage } from "@/src/utils/storage";
 

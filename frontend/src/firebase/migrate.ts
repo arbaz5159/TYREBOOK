@@ -22,7 +22,7 @@ import {
   serverTimestamp,
   setDoc,
   writeBatch,
-} from "firebase/firestore";
+} from "./fsSdk";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";

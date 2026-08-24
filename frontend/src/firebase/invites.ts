@@ -21,7 +21,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
-} from "firebase/firestore";
+} from "./fsSdk";
 
 import { getDb } from "./config";
 import { stripUndefined } from "./util";

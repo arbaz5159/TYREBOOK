@@ -32,9 +32,11 @@
 import {
   collection,
   doc,
-  type CollectionReference,
-  type DocumentReference,
-  type Firestore,
+} from "./fsSdk";
+import type {
+  CollectionReference,
+  DocumentReference,
+  Firestore,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 

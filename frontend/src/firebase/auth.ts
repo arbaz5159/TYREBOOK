@@ -416,6 +416,48 @@ async function hydrateAppUser(
 // Public API
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Native auth mirroring — so Firestore (which routes through RNFB on Native
+// via ./fsSdk) has an authenticated session for BOTH sign-in paths:
+//   * phone-OTP  → already lands in the RNFB auth session (see sendOtp/verifyOtp)
+//   * email/password (Super Admin, Shop Admin fallback) → JS SDK signs in first,
+//     then we mirror into RNFB here so RNFB Firestore reads/writes have
+//     `request.auth.uid == user.uid`.
+// Safe by design: same Firebase project, same credentials, best-effort — a
+// failure here does NOT block the JS SDK-side login (the Web branch of
+// hydrate still works if the RNFB module is somehow missing).
+async function mirrorEmailSignInToRnfb(email: string, password: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const rnfb = require("@react-native-firebase/auth") as typeof import("@react-native-firebase/auth");
+    const a = rnfb.getAuth();
+    if (a.currentUser && a.currentUser.email?.toLowerCase() === email.toLowerCase()) return;
+    await rnfb.signInWithEmailAndPassword(a, email, password);
+  } catch (e) {
+    console.warn("[auth] RNFB email sign-in mirror failed (non-fatal):", e);
+  }
+}
+
+async function mirrorEmailSignUpToRnfb(
+  email: string,
+  password: string,
+): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const rnfb = require("@react-native-firebase/auth") as typeof import("@react-native-firebase/auth");
+    const a = rnfb.getAuth();
+    if (a.currentUser && a.currentUser.email?.toLowerCase() === email.toLowerCase()) return;
+    // The JS SDK already created the Firebase Auth user — signIn (not
+    // createUser) is the right RNFB call here, otherwise we'd hit
+    // "email-already-in-use".
+    await rnfb.signInWithEmailAndPassword(a, email, password);
+  } catch (e) {
+    console.warn("[auth] RNFB email sign-up mirror failed (non-fatal):", e);
+  }
+}
+
 export async function signIn(email: string, password: string): Promise<AppUser> {
   const auth = getFirebaseAuth();
   if (!auth) {
@@ -432,6 +474,9 @@ export async function signIn(email: string, password: string): Promise<AppUser> 
     return local;
   }
   const cred = await signInWithEmailAndPassword(auth, email, password);
+  // Mirror into RNFB Auth on Native so RNFB-Firestore (used by all tenant
+  // reads via ./fsSdk on Native) has an authenticated session too.
+  await mirrorEmailSignInToRnfb(email, password);
   return hydrateAppUser(cred.user);
 }
 
@@ -463,6 +508,8 @@ export async function signUp(
       /* nice-to-have */
     }
   }
+  // Mirror into RNFB Auth on Native (see mirrorEmailSignInToRnfb above).
+  await mirrorEmailSignUpToRnfb(email, password);
   return hydrateAppUser(cred.user, {
     fallbackName: shopNameOverride?.trim() || name,
   });

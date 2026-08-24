@@ -20,7 +20,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-} from "firebase/firestore";
+} from "./fsSdk";
 
 import { storage } from "@/src/utils/storage";
 

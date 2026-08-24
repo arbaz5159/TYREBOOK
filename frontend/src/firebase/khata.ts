@@ -12,7 +12,7 @@ import {
   query,
   serverTimestamp,
   where,
-} from "firebase/firestore";
+} from "./fsSdk";
 
 import { storage } from "@/src/utils/storage";
 

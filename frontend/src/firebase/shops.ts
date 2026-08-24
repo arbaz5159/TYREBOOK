@@ -21,7 +21,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-} from "firebase/firestore";
+} from "./fsSdk";
 import { Platform } from "react-native";
 
 import { getDb } from "./config";

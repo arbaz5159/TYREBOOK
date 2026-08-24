@@ -17,6 +17,8 @@ import {
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { Platform } from "react-native";
 
+import { _getNativeFirestoreModule } from "./fsSdk";
+
 // `getReactNativePersistence` is only exported from the RN build of
 // `firebase/auth`. Requiring it via the barrel import causes it to be
 // `undefined` on Web, which then throws once we try to call it. We resolve
@@ -103,6 +105,24 @@ export function getFirebaseAuth(): Auth | null {
 
 export function getDb(): Firestore | null {
   if (db) return db;
+  // ------------------------------------------------------------------
+  // Native path: use the @react-native-firebase/firestore instance so
+  // Firestore reads/writes authenticate against the RNFB Auth session
+  // that phone-OTP login puts a user into. Without this branch, native
+  // Firestore requests would still go through the JS SDK — which has an
+  // EMPTY auth session on native (nothing signs into it) — resulting in
+  // `request.auth == null` and permission-denied on every protected
+  // collection (listSales, listTyres, listPurchases, listCustomers).
+  // ------------------------------------------------------------------
+  if (Platform.OS !== "web") {
+    const rnfb = _getNativeFirestoreModule();
+    if (rnfb) {
+      db = rnfb.getFirestore() as unknown as Firestore;
+      return db;
+    }
+    // RNFB native module unavailable → fall back to JS SDK below (only
+    // reachable in Expo Go / dev where the native module isn't linked).
+  }
   const a = ensureApp();
   if (!a) return null;
   db = getFirestore(a);
