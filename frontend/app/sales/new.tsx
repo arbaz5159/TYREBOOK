@@ -38,7 +38,6 @@ import {
   CUSTOMER_TYPES,
   PAYMENT_MODES,
   TYRE_CLASSES,
-  VEHICLE_CATEGORIES,
   type CustomerType,
   type PaymentMode,
   type SaleItem,
@@ -71,6 +70,10 @@ interface ItemDraft {
   discountPercent: string;
   linkedTyreId?: string;
   availableStock?: number;
+  // Category auto-read from the matched inventory tyre — never picked
+  // manually by the user. Falls back to the last known bill category if
+  // the typed brand/model/size doesn't match any tyre in stock.
+  matchedCategoryId?: VehicleCategoryId;
 }
 
 function blankItem(): ItemDraft {
@@ -98,7 +101,11 @@ export default function NewSale() {
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerStateCode, setCustomerStateCode] = useState("");
   const [customerType, setCustomerType] = useState<CustomerType>("Retail");
-  const [categoryId, setCategoryId] = useState<VehicleCategoryId>("car");
+  // Hidden fallback category — never shown to the user. Each item's
+  // categoryId is auto-read from the matched inventory tyre and stored
+  // per-item; this fallback is used ONLY when a user typed a
+  // brand/model/size that doesn't match ANY row in `shops/{shopId}/tyres`.
+  const [fallbackCategory, setFallbackCategory] = useState<VehicleCategoryId>("car");
   const [tyreClass, setTyreClass] = useState<TyreClass>("new");
   const [gstPercent, setGst] = useState<number>(18);
   const [paymentMode, setPayment] = useState<PaymentMode>("Cash");
@@ -128,7 +135,8 @@ export default function NewSale() {
     (async () => {
       const t = await getTyre(tyreId);
       if (!t) return;
-      setCategoryId(t.categoryId);
+      // Category is auto-read from the matched tyre — never a manual pick.
+      setFallbackCategory(t.categoryId);
       setTyreClass((t.tyreClass ?? "new") as TyreClass);
       setItems([
         {
@@ -141,6 +149,7 @@ export default function NewSale() {
           discountPercent: "0",
           linkedTyreId: t.id,
           availableStock: t.currentStock ?? 0,
+          matchedCategoryId: t.categoryId,
         },
       ]);
     })();
@@ -158,28 +167,35 @@ export default function NewSale() {
     setItems((prev) => [...prev, blankItem()]);
   };
 
-  // Auto-link an item to inventory + snap in available stock when the user
-  // finishes typing brand+model+size. Cheap lookup — one listTyres() per
-  // (categoryId, tyreClass) filtered client-side.
+  // Match an exact tyre in current shop inventory by Brand + Model + Size,
+  // searching across ALL categories (Vehicle Category is auto-read from the
+  // matched tyre, not picked manually). Case-insensitive, whitespace-tolerant.
   const linkItemToStock = async (idx: number) => {
     const item = items[idx];
     if (!item.brand.trim() || !item.model.trim() || !item.size.trim()) return;
     if (item.linkedTyreId) return; // already linked
     try {
-      const list = await listTyres(categoryId, tyreClass);
+      const list = await listTyres(); // no category filter — search whole shop
+      const nb = item.brand.trim().toLowerCase();
+      const nm = item.model.trim().toLowerCase();
+      const ns = item.size.trim().toLowerCase();
       const t = list.find(
         (x) =>
-          x.brand.toLowerCase() === item.brand.trim().toLowerCase() &&
-          x.model.toLowerCase() === item.model.trim().toLowerCase() &&
-          x.size.toLowerCase() === item.size.trim().toLowerCase(),
+          (x.brand ?? "").trim().toLowerCase() === nb &&
+          (x.model ?? "").trim().toLowerCase() === nm &&
+          (x.size ?? "").trim().toLowerCase() === ns,
       );
       if (t) {
         updateItem(idx, {
           linkedTyreId: t.id,
           availableStock: t.currentStock ?? 0,
+          matchedCategoryId: t.categoryId,
           sellingPrice: item.sellingPrice || String(t.sellingPrice ?? ""),
           priceList: item.priceList || String(t.companyPriceList ?? t.mrp ?? ""),
         });
+        // Also update the hidden fallback so subsequent unmatched items
+        // inherit the "hot" category of this bill.
+        setFallbackCategory(t.categoryId);
       }
     } catch (e) {
       console.warn("[sale] linkItemToStock failed (non-fatal):", e);
@@ -256,8 +272,12 @@ export default function NewSale() {
       // Build SaleItem[] for persistence.
       const saleItems: SaleItem[] = items.map((it, i) => {
         const line = computed.lines[i];
-        return {
-          categoryId,
+        const cat = it.matchedCategoryId ?? fallbackCategory;
+        // Build the item WITHOUT `linkedTyreId` first, then only attach
+        // it if it actually resolved to an inventory row. This prevents
+        // any `undefined` from leaking through to Firestore.
+        const base: SaleItem = {
+          categoryId: cat,
           tyreClass,
           brand: it.brand.trim(),
           model: it.model.trim(),
@@ -268,12 +288,18 @@ export default function NewSale() {
           discountAmount: line.discountAmount,
           sellingPrice: line.unitPrice,
           gstPercent: isKacha ? 0 : gstPercent,
-          linkedTyreId: it.linkedTyreId,
           taxable: line.taxable,
           totalGst: line.totalGst,
           lineTotal: line.lineTotal,
         };
+        if (it.linkedTyreId) base.linkedTyreId = it.linkedTyreId;
+        return base;
       });
+
+      // Bill-level (legacy) category = first matched item's category, or
+      // the running fallback. Never `undefined` on the wire.
+      const billCategory: VehicleCategoryId =
+        items.find((it) => it.matchedCategoryId)?.matchedCategoryId ?? fallbackCategory;
 
       const res = await createMultiSale({
         customerName: customerName.trim(),
@@ -330,7 +356,7 @@ export default function NewSale() {
             vehicleNumber: vehicleNumber.trim().toUpperCase(),
             customerType,
             date: saleDate,
-            categoryId,
+            categoryId: billCategory,
             tyreClass,
             brand: first.brand,
             model: first.model,
@@ -471,14 +497,6 @@ export default function NewSale() {
             value={tyreClass}
             onChange={setTyreClass}
             testIDPrefix="sale-class"
-          />
-
-          <Text style={styles.label}>Vehicle Category</Text>
-          <ChipRow
-            options={VEHICLE_CATEGORIES.map((c) => ({ value: c.id, label: c.name }))}
-            value={categoryId}
-            onChange={setCategoryId}
-            testIDPrefix="sale-cat"
           />
 
           {/* Items --------------------------------------------------------- */}

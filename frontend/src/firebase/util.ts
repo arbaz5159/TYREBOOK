@@ -11,7 +11,16 @@ export function stripUndefined<T extends Record<string, any>>(input: T): T {
   for (const k of Object.keys(input)) {
     const v = input[k];
     if (v === undefined) continue;
-    if (v && typeof v === "object" && !Array.isArray(v) && !isFirestoreSentinel(v)) {
+    if (Array.isArray(v)) {
+      // Recurse into array elements so undefined fields nested in items[]
+      // (e.g. Sale.items[i].linkedTyreId) don't leak through and cause
+      // Firestore "Unsupported field value: undefined" errors.
+      out[k] = v.map((el) =>
+        el && typeof el === "object" && !Array.isArray(el) && !isFirestoreSentinel(el)
+          ? stripUndefined(el as Record<string, any>)
+          : el,
+      );
+    } else if (v && typeof v === "object" && !isFirestoreSentinel(v)) {
       out[k] = stripUndefined(v as Record<string, any>);
     } else {
       out[k] = v;
