@@ -27,6 +27,7 @@ interface Stats {
   todayPurchase: number;
   todaySales: number;
   todayProfit: number;
+  todayCostOfSales: number;
   todayRetail: number;
   todayWholesale: number;
   todayOld: number;
@@ -43,6 +44,7 @@ const ZERO: Stats = {
   todayPurchase: 0,
   todaySales: 0,
   todayProfit: 0,
+  todayCostOfSales: 0,
   todayRetail: 0,
   todayWholesale: 0,
   todayOld: 0,
@@ -153,11 +155,40 @@ export default function Dashboard() {
     const todayRemould = todaySalesList
       .filter((s) => s.tyreClass === "remould")
       .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
-    const todayProfit = todaySalesList.reduce((sum, s) => {
-      const tyre = tyres.find((t) => t.id === s.linkedTyreId);
-      const cost = (tyre?.purchasePrice ?? 0) * s.quantity;
-      return sum + (s.sellingPrice * s.quantity - cost);
-    }, 0);
+
+    // -----------------------------------------------------------------
+    // Profit + Cost of Sales (COGS) — per Message 559.
+    //   • For EACH sold tyre:  profit = (sellingPrice − purchasePrice) × qty
+    //   • Multi-item bills:    sum profit & cost across sale.items[]
+    //   • Single-item legacy:  fall back to top-level sale fields
+    // Purchase price is read from the exact linked tyre in inventory
+    // (matched by linkedTyreId). If the tyre was later deleted the fallback
+    // is 0 — same as the previous behaviour, so profit degrades to revenue.
+    // -----------------------------------------------------------------
+    const tyresById = new Map(tyres.map((t) => [t.id, t]));
+    const purchasePriceOf = (tyreId?: string): number =>
+      (tyreId ? tyresById.get(tyreId)?.purchasePrice : 0) ?? 0;
+
+    let todayCostOfSales = 0;
+    let todayProfit = 0;
+    for (const s of todaySalesList) {
+      const items = Array.isArray(s.items) && s.items.length > 0
+        ? s.items
+        : [
+            {
+              linkedTyreId: s.linkedTyreId,
+              sellingPrice: s.sellingPrice,
+              quantity: s.quantity,
+            },
+          ];
+      for (const it of items) {
+        const qty = Number(it.quantity) || 0;
+        const unitSelling = Number(it.sellingPrice) || 0;
+        const unitCost = purchasePriceOf(it.linkedTyreId);
+        todayCostOfSales += unitCost * qty;
+        todayProfit += (unitSelling - unitCost) * qty;
+      }
+    }
     const pendingKhata = sales
       .filter((s) => s.paymentMode === "Credit")
       .reduce((sum, s) => sum + (s.totalValue ?? 0), 0);
@@ -176,6 +207,7 @@ export default function Dashboard() {
       todayPurchase,
       todaySales,
       todayProfit,
+      todayCostOfSales,
       todayRetail,
       todayWholesale,
       todayOld,
@@ -350,8 +382,8 @@ export default function Dashboard() {
                 <Text style={styles.heroPillValue}>{inr(stats.todayProfit)}</Text>
               </View>
               <View style={styles.heroPill}>
-                <Text style={styles.heroPillText}>Purchase</Text>
-                <Text style={styles.heroPillValue}>{inr(stats.todayPurchase)}</Text>
+                <Text style={styles.heroPillText}>Purchase Cost</Text>
+                <Text style={styles.heroPillValue}>{inr(stats.todayCostOfSales)}</Text>
               </View>
             </View>
           ) : (
